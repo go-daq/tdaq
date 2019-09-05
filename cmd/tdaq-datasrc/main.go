@@ -30,6 +30,8 @@ func main() {
 
 	srv.OutputHandle("/adc", dev.adc)
 
+	srv.RunHandle(dev.run)
+
 	err := srv.Run(context.Background())
 	if err != nil {
 		log.Panicf("error: %v", err)
@@ -69,7 +71,6 @@ func (dev *datasrc) OnReset(ctx context.Context, resp *tdaq.Frame, req tdaq.Fram
 
 func (dev *datasrc) OnStart(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	log.Debugf("received /start command... (%v)", dev.name)
-	go dev.run(ctx)
 	return nil
 }
 
@@ -85,16 +86,20 @@ func (dev *datasrc) OnTerminate(ctx context.Context, resp *tdaq.Frame, req tdaq.
 }
 
 func (dev *datasrc) adc(ctx context.Context, dst *tdaq.Frame) error {
-	data := <-dev.data
-	dst.Body = data
+	select {
+	case <-ctx.Done():
+		dst.Body = nil
+	case data := <-dev.data:
+		dst.Body = data
+	}
 	return nil
 }
 
-func (dev *datasrc) run(ctx context.Context) {
+func (dev *datasrc) run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 			raw := make([]byte, 1024)
 			rand.Read(raw)
@@ -106,4 +111,6 @@ func (dev *datasrc) run(ctx context.Context) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+
+	return nil
 }

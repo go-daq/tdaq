@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -27,8 +28,15 @@ type Server struct {
 	omgr *omgr
 	cmgr *cmdmgr
 
+	state struct {
+		cur  fsm.StateKind
+		next fsm.StateKind
+	}
+
 	runctx  context.Context
 	rundone context.CancelFunc
+	rungrp  *errgroup.Group
+	runfcts []func(context.Context) error
 
 	quit chan struct{} // term channel
 }
@@ -37,8 +45,6 @@ func New(rctl, name string) *Server {
 	srv := &Server{
 		rc:   rctl,
 		name: name,
-		imgr: newIMgr(),
-		omgr: newOMgr(),
 		cmgr: newCmdMgr(
 			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",
@@ -48,6 +54,9 @@ func New(rctl, name string) *Server {
 
 		quit: make(chan struct{}),
 	}
+	srv.imgr = newIMgr(srv)
+	srv.omgr = newOMgr(srv)
+
 	return srv
 }
 
@@ -61,6 +70,12 @@ func (srv *Server) InputHandle(name string, h InputHandler) {
 
 func (srv *Server) OutputHandle(name string, h OutputHandler) {
 	srv.omgr.Handle(name, h)
+}
+
+func (srv *Server) RunHandle(f RunHandler) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	srv.runfcts = append(srv.runfcts, f)
 }
 
 func (srv *Server) Run(ctx context.Context) error {
@@ -101,6 +116,33 @@ func (srv *Server) Run(ctx context.Context) error {
 	return err
 }
 
+func (srv *Server) setCurState(state fsm.StateKind) {
+	srv.mu.Lock()
+	srv.state.cur = state
+	srv.state.next = state
+	srv.mu.Unlock()
+}
+
+func (srv *Server) setNextState(state fsm.StateKind) {
+	srv.mu.Lock()
+	srv.state.next = state
+	srv.mu.Unlock()
+}
+
+func (srv *Server) getCurState() fsm.StateKind {
+	srv.mu.RLock()
+	state := srv.state.cur
+	srv.mu.RUnlock()
+	return state
+}
+
+func (srv *Server) getNextState() fsm.StateKind {
+	srv.mu.RLock()
+	state := srv.state.next
+	srv.mu.RUnlock()
+	return state
+}
+
 func (srv *Server) join(ctx context.Context) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
@@ -115,9 +157,9 @@ func (srv *Server) join(ctx context.Context) error {
 		return xerrors.Errorf("could not join run-ctl before timeout: %w", ctx.Err())
 	default:
 		cmd := JoinCmd{
-			Name:     srv.name,
-			InPorts:  srv.imgr.ports(),
-			OutPorts: srv.omgr.ports(),
+			Name:         srv.name,
+			InEndPoints:  srv.imgr.endpoints(),
+			OutEndPoints: srv.omgr.endpoints(),
 		}
 
 		err := SendCmd(ctx, srv.rctl, &cmd)
@@ -151,24 +193,26 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 		case <-srv.quit:
 			return
 		default:
-			cmd, err := RecvFrame(ctx, srv.rctl)
+			frame, err := RecvFrame(ctx, srv.rctl)
 			switch {
 			case err == nil:
 				// ok
-			case xerrors.Is(err, io.EOF), xerrors.Is(err, io.ErrUnexpectedEOF):
-				log.Errorf("could not receive cmds from run-ctl 1: %+v", err)
-				return
 			default:
 				var nerr net.Error
 				if xerrors.As(err, &nerr); !nerr.Temporary() {
-					log.Warnf("connection to run-ctl: %+v", err)
+					switch state := srv.getNextState(); state {
+					case fsm.Exiting:
+						// ok
+					default:
+						log.Warnf("connection to run-ctl: %+v", err)
+					}
 					return
 				}
-				log.Warnf("could not receive cmds from run-ctl 2: %+v", err)
+				log.Warnf("could not receive cmds from run-ctl: %+v", err)
 				continue
 			}
 
-			go srv.handleCmd(ctx, srv.rctl, cmd)
+			go srv.handleCmd(ctx, srv.rctl, frame)
 		}
 	}
 }
@@ -176,6 +220,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	var (
 		resp = Frame{Type: FrameOK}
+		next fsm.StateKind
 		err  error
 	)
 
@@ -197,40 +242,62 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	switch name {
 	case "/config":
 		onCmd = srv.onConfig
+		next = fsm.Conf
 	case "/init":
 		onCmd = srv.onInit
+		next = fsm.Init
 	case "/reset":
 		onCmd = srv.onReset
+		next = fsm.Conf
 	case "/start":
 		onCmd = srv.onStart
+		next = fsm.Running
+		runctx, cancel := context.WithCancel(context.Background())
+		rungrp, runctx := errgroup.WithContext(runctx)
+
+		srv.runctx = runctx
+		srv.rundone = cancel
+		srv.rungrp = rungrp
+
+		ctx = runctx
 	case "/stop":
 		onCmd = srv.onStop
+		next = fsm.Stopped
 	case "/term":
 		onCmd = srv.onTerm
+		next = fsm.Exiting
 		defer close(srv.quit)
 
 	case "/status":
 		onCmd = srv.onStatus
+		next = srv.getCurState()
 	case "/log":
 		onCmd = srv.onLog
+		next = srv.getCurState()
 
 	default:
 		log.Errorf("invalid cmd %q", name)
 	}
 
-	err = onCmd(ctx, req)
-	if err != nil {
-		log.Warnf("could not run %v pre-handler: %v", name, err)
+	srv.setNextState(next)
+
+	errPre := onCmd(ctx, req)
+	if errPre != nil {
+		log.Warnf("could not run %v pre-handler: %v", name, errPre)
 		resp.Type = FrameErr
-		resp.Body = []byte(err.Error())
+		resp.Body = []byte(errPre.Error())
+		next = fsm.Error
 	}
 
-	err = h(ctx, &resp, req)
-	if err != nil {
-		log.Warnf("could not run %v handler: %v", name, err)
+	errH := h(ctx, &resp, req)
+	if errH != nil {
+		log.Warnf("could not run %v handler: %v", name, errH)
 		resp.Type = FrameErr
-		resp.Body = []byte(err.Error())
+		resp.Body = []byte(errH.Error())
+		next = fsm.Error
 	}
+
+	srv.setCurState(next)
 
 	err = SendFrame(ctx, w, resp)
 	if err != nil {
@@ -242,18 +309,16 @@ func (srv *Server) onConfig(ctx context.Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	// FIXME(sbinet): validate FSM state transition here.
-
-	cmd, err := newConfigCmd(req)
-	if err != nil {
-		return xerrors.Errorf("could not retrieve /config cmd: %w", err)
+	switch srv.state.cur {
+	case fsm.UnConf, fsm.Conf, fsm.Error:
+		// ok
+	default:
+		return xerrors.Errorf("invalid state transition %v -> configured", srv.state)
 	}
 
-	for _, iport := range cmd.InPorts {
-		err = srv.imgr.dial(iport)
-		if err != nil {
-			return err
-		}
+	ierr := srv.imgr.onConfig(ctx, req)
+	if ierr != nil {
+		return xerrors.Errorf("could not /config input-ports: %w", ierr)
 	}
 
 	return nil
@@ -263,12 +328,26 @@ func (srv *Server) onInit(ctx context.Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
+	switch srv.state.cur {
+	case fsm.Conf:
+		// ok
+	default:
+		return xerrors.Errorf("invalid state transition %v -> initialized", srv.state)
+	}
+
 	return nil
 }
 
 func (srv *Server) onReset(ctx context.Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
+
+	switch srv.state.cur {
+	case fsm.UnConf, fsm.Conf, fsm.Init, fsm.Stopped, fsm.Error:
+		// ok
+	default:
+		return xerrors.Errorf("invalid state transition %v -> reset", srv.state)
+	}
 
 	ierr := srv.imgr.onReset(ctx)
 	oerr := srv.omgr.onReset(ctx)
@@ -283,13 +362,23 @@ func (srv *Server) onReset(ctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onStart(ctx context.Context, req Frame) error {
+func (srv *Server) onStart(runctx context.Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	runctx, cancel := context.WithCancel(context.Background())
-	srv.runctx = runctx
-	srv.rundone = cancel
+	switch srv.state.cur {
+	case fsm.Init, fsm.Stopped:
+		// ok
+	default:
+		return xerrors.Errorf("invalid state transition %v -> started", srv.state)
+	}
+
+	for i := range srv.runfcts {
+		f := srv.runfcts[i]
+		srv.rungrp.Go(func() error {
+			return f(runctx)
+		})
+	}
 
 	ierr := srv.imgr.onStart(runctx)
 	oerr := srv.omgr.onStart(runctx)
@@ -308,8 +397,28 @@ func (srv *Server) onStop(ctx context.Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
+	switch srv.state.cur {
+	case fsm.Running:
+		// ok
+	default:
+		return xerrors.Errorf("invalid state transition %v -> stopped", srv.state)
+	}
+
 	srv.rundone()
 	<-srv.runctx.Done()
+	werr := srv.rungrp.Wait()
+
+	ierr := srv.imgr.onStop(ctx)
+	oerr := srv.omgr.onStop(ctx)
+
+	switch {
+	case werr != nil:
+		return werr
+	case ierr != nil:
+		return ierr
+	case oerr != nil:
+		return oerr
+	}
 
 	return nil
 }
@@ -333,61 +442,4 @@ func (srv *Server) onLog(ctx context.Context, req Frame) error {
 	defer srv.mu.Unlock()
 
 	return nil
-}
-
-type oport struct {
-	name  string
-	srv   *Server
-	l     net.Listener
-	mu    sync.RWMutex
-	conns []net.Conn
-}
-
-func (o *oport) accept() {
-	for {
-		conn, err := o.l.Accept()
-		if err != nil {
-			log.Errorf("could not accept conn for end-point %q: %v", o.name, err)
-			if err.(net.Error).Temporary() {
-				continue
-			}
-			return
-		}
-		setupTCPConn(conn.(*net.TCPConn))
-
-		o.mu.Lock()
-		o.conns = append(o.conns, conn)
-		o.mu.Unlock()
-	}
-}
-
-func (o *oport) onReset() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	var err error
-	for _, conn := range o.conns {
-		e := conn.Close()
-		if e != nil {
-			err = e
-		}
-	}
-	o.conns = o.conns[:0]
-
-	return err
-}
-
-func (o *oport) send(data []byte) error {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-
-	var grp errgroup.Group
-	for i := range o.conns {
-		conn := o.conns[i]
-		grp.Go(func() error {
-			_, err := conn.Write(data)
-			return err
-		})
-	}
-	return grp.Wait()
 }

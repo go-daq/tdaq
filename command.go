@@ -130,9 +130,9 @@ func recvCmd(ctx context.Context, r io.Reader) (cmd Cmd, err error) {
 }
 
 type JoinCmd struct {
-	Name     string
-	InPorts  []Port
-	OutPorts []Port
+	Name         string
+	InEndPoints  []EndPoint
+	OutEndPoints []EndPoint
 }
 
 func (cmd JoinCmd) CmdType() CmdType { return CmdJoin }
@@ -142,18 +142,18 @@ func (cmd JoinCmd) MarshalTDAQ() ([]byte, error) {
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
 
-	enc.WriteU64(uint64(len(cmd.InPorts)))
-	for _, p := range cmd.InPorts {
-		enc.WriteStr(p.Name)
-		enc.WriteStr(p.Addr)
-		enc.WriteStr(p.Type)
+	enc.WriteU64(uint64(len(cmd.InEndPoints)))
+	for _, ep := range cmd.InEndPoints {
+		enc.WriteStr(ep.Name)
+		enc.WriteStr(ep.Addr)
+		enc.WriteStr(ep.Type)
 	}
 
-	enc.WriteU64(uint64(len(cmd.OutPorts)))
-	for _, p := range cmd.OutPorts {
-		enc.WriteStr(p.Name)
-		enc.WriteStr(p.Addr)
-		enc.WriteStr(p.Type)
+	enc.WriteU64(uint64(len(cmd.OutEndPoints)))
+	for _, ep := range cmd.OutEndPoints {
+		enc.WriteStr(ep.Name)
+		enc.WriteStr(ep.Addr)
+		enc.WriteStr(ep.Type)
 	}
 	return buf.Bytes(), enc.err
 }
@@ -163,30 +163,30 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 
 	cmd.Name = dec.ReadStr()
 	n := int(dec.ReadU64())
-	cmd.InPorts = make([]Port, n)
-	for i := range cmd.InPorts {
-		p := &cmd.InPorts[i]
-		p.Name = dec.ReadStr()
-		p.Addr = dec.ReadStr()
-		p.Type = dec.ReadStr()
+	cmd.InEndPoints = make([]EndPoint, n)
+	for i := range cmd.InEndPoints {
+		ep := &cmd.InEndPoints[i]
+		ep.Name = dec.ReadStr()
+		ep.Addr = dec.ReadStr()
+		ep.Type = dec.ReadStr()
 	}
 
 	n = int(dec.ReadU64())
-	cmd.OutPorts = make([]Port, n)
-	for i := range cmd.OutPorts {
-		p := &cmd.OutPorts[i]
-		p.Name = dec.ReadStr()
-		p.Addr = dec.ReadStr()
-		p.Type = dec.ReadStr()
+	cmd.OutEndPoints = make([]EndPoint, n)
+	for i := range cmd.OutEndPoints {
+		ep := &cmd.OutEndPoints[i]
+		ep.Name = dec.ReadStr()
+		ep.Addr = dec.ReadStr()
+		ep.Type = dec.ReadStr()
 	}
 
 	return dec.err
 }
 
 type ConfigCmd struct {
-	Name     string
-	InPorts  []Port
-	OutPorts []Port
+	Name         string
+	InEndPoints  []EndPoint
+	OutEndPoints []EndPoint
 }
 
 func newConfigCmd(frame Frame) (ConfigCmd, error) {
@@ -215,18 +215,18 @@ func (cmd ConfigCmd) MarshalTDAQ() ([]byte, error) {
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
 
-	enc.WriteU64(uint64(len(cmd.InPorts)))
-	for _, p := range cmd.InPorts {
-		enc.WriteStr(p.Name)
-		enc.WriteStr(p.Addr)
-		enc.WriteStr(p.Type)
+	enc.WriteU64(uint64(len(cmd.InEndPoints)))
+	for _, ep := range cmd.InEndPoints {
+		enc.WriteStr(ep.Name)
+		enc.WriteStr(ep.Addr)
+		enc.WriteStr(ep.Type)
 	}
 
-	enc.WriteU64(uint64(len(cmd.OutPorts)))
-	for _, p := range cmd.OutPorts {
-		enc.WriteStr(p.Name)
-		enc.WriteStr(p.Addr)
-		enc.WriteStr(p.Type)
+	enc.WriteU64(uint64(len(cmd.OutEndPoints)))
+	for _, ep := range cmd.OutEndPoints {
+		enc.WriteStr(ep.Name)
+		enc.WriteStr(ep.Addr)
+		enc.WriteStr(ep.Type)
 	}
 	return buf.Bytes(), enc.err
 }
@@ -236,21 +236,21 @@ func (cmd *ConfigCmd) UnmarshalTDAQ(p []byte) error {
 
 	cmd.Name = dec.ReadStr()
 	n := int(dec.ReadU64())
-	cmd.InPorts = make([]Port, n)
-	for i := range cmd.InPorts {
-		p := &cmd.InPorts[i]
-		p.Name = dec.ReadStr()
-		p.Addr = dec.ReadStr()
-		p.Type = dec.ReadStr()
+	cmd.InEndPoints = make([]EndPoint, n)
+	for i := range cmd.InEndPoints {
+		ep := &cmd.InEndPoints[i]
+		ep.Name = dec.ReadStr()
+		ep.Addr = dec.ReadStr()
+		ep.Type = dec.ReadStr()
 	}
 
 	n = int(dec.ReadU64())
-	cmd.OutPorts = make([]Port, n)
-	for i := range cmd.OutPorts {
-		p := &cmd.OutPorts[i]
-		p.Name = dec.ReadStr()
-		p.Addr = dec.ReadStr()
-		p.Type = dec.ReadStr()
+	cmd.OutEndPoints = make([]EndPoint, n)
+	for i := range cmd.OutEndPoints {
+		ep := &cmd.OutEndPoints[i]
+		ep.Name = dec.ReadStr()
+		ep.Addr = dec.ReadStr()
+		ep.Type = dec.ReadStr()
 	}
 
 	return dec.err

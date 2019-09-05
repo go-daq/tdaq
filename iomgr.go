@@ -7,29 +7,36 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"io"
 	"net"
 	"sort"
 	"sync"
 
+	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
+type RunHandler func(ctx context.Context) error
 type CmdHandler func(ctx context.Context, resp *Frame, req Frame) error
 type InputHandler func(ctx context.Context, src Frame) error
 type OutputHandler func(ctx context.Context, dst *Frame) error
 
 type imgr struct {
-	mu sync.RWMutex
-	ps map[string]net.Conn
-	ep map[string]InputHandler
+	srv *Server
+	mu  sync.RWMutex
+	ps  map[string]net.Conn
+	ep  map[string]InputHandler
+	cfg ConfigCmd
+
+	done chan struct{}
 }
 
-func newIMgr() *imgr {
+func newIMgr(srv *Server) *imgr {
 	return &imgr{
-		ps: make(map[string]net.Conn),
-		ep: make(map[string]InputHandler),
+		srv: srv,
+		ps:  make(map[string]net.Conn),
+		ep:  make(map[string]InputHandler),
 	}
 }
 
@@ -45,13 +52,13 @@ func (mgr *imgr) Handle(name string, h InputHandler) {
 	mgr.ep[name] = h
 }
 
-func (mgr *imgr) ports() []Port {
+func (mgr *imgr) endpoints() []EndPoint {
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 
-	ps := make([]Port, 0, len(mgr.ep))
+	ps := make([]EndPoint, 0, len(mgr.ep))
 	for k := range mgr.ep {
-		ps = append(ps, Port{
+		ps = append(ps, EndPoint{
 			Name: k,
 			Type: "", // FIXME(sbinet)
 		})
@@ -59,16 +66,33 @@ func (mgr *imgr) ports() []Port {
 	return ps
 }
 
-func (mgr *imgr) dial(p Port) error {
+func (mgr *imgr) onConfig(ctx context.Context, src Frame) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	conn, err := net.Dial("tcp", p.Addr)
+	cmd, err := newConfigCmd(src)
 	if err != nil {
-		return xerrors.Errorf("could not dial %q end-point (ep=%q): %w", p.Addr, p.Name, err)
+		return xerrors.Errorf("could not retrieve /config cmd: %w", err)
+	}
+	mgr.cfg = cmd
+
+	for _, ep := range cmd.InEndPoints {
+		err = mgr.dial(ep)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mgr *imgr) dial(ep EndPoint) error {
+	conn, err := net.Dial("tcp", ep.Addr)
+	if err != nil {
+		return xerrors.Errorf("could not dial %q end-point (ep=%q): %w", ep.Addr, ep.Name, err)
 	}
 	setupTCPConn(conn.(*net.TCPConn))
-	mgr.ps[p.Name] = conn
+	mgr.ps[ep.Name] = conn
 
 	return nil
 }
@@ -99,6 +123,13 @@ func (mgr *imgr) onStart(ctx context.Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
+	mgr.done = make(chan struct{})
+
+	if len(mgr.ps) == 0 {
+		close(mgr.done)
+		return nil
+	}
+
 	for k := range mgr.ps {
 		conn := mgr.ps[k]
 		fct := mgr.ep[k]
@@ -108,7 +139,24 @@ func (mgr *imgr) onStart(ctx context.Context) error {
 	return nil
 }
 
+func (mgr *imgr) onStop(ctx context.Context) error {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	select {
+	case <-mgr.done:
+		return nil
+
+	case <-ctx.Done():
+		return xerrors.Errorf("on-stop failed: %w", ctx.Err())
+	}
+
+	return xerrors.Errorf("impossible")
+}
+
 func (mgr *imgr) run(ctx context.Context, ep string, conn net.Conn, f InputHandler) {
+	defer close(mgr.done)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -117,11 +165,19 @@ func (mgr *imgr) run(ctx context.Context, ep string, conn net.Conn, f InputHandl
 			frame, err := RecvFrame(ctx, conn)
 			switch {
 			default:
-				log.Errorf("could not retrieve data frame for %q: %v", ep, err)
-				return
-			case xerrors.Is(err, io.EOF):
+				switch state := mgr.srv.getNextState(); state {
+				case fsm.Stopped:
+					// ok.
+				default:
+					log.Errorf("could not retrieve data frame for %q (state=%v): %+v", ep, state, err)
+				}
 				return
 			case err == nil:
+				if frame.Type == FrameEOF {
+					// no more data
+					return
+				}
+
 				err = f(ctx, frame)
 				if err != nil {
 					log.Errorf("could not process data frame for %q: %v", ep, err)
@@ -132,15 +188,19 @@ func (mgr *imgr) run(ctx context.Context, ep string, conn net.Conn, f InputHandl
 }
 
 type omgr struct {
-	mu sync.RWMutex
-	ps map[string]*oport
-	ep map[string]OutputHandler
+	srv *Server
+	mu  sync.RWMutex
+	ps  map[string]*oport
+	ep  map[string]OutputHandler
+
+	done chan struct{}
 }
 
-func newOMgr() *omgr {
+func newOMgr(srv *Server) *omgr {
 	return &omgr{
-		ps: make(map[string]*oport),
-		ep: make(map[string]OutputHandler),
+		srv: srv,
+		ps:  make(map[string]*oport),
+		ep:  make(map[string]OutputHandler),
 	}
 }
 
@@ -173,25 +233,25 @@ func (mgr *omgr) init(srv *Server) error {
 	return nil
 }
 
-func (mgr *omgr) ports() []Port {
+func (mgr *omgr) endpoints() []EndPoint {
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 
-	ps := make([]Port, 0, len(mgr.ep))
+	eps := make([]EndPoint, 0, len(mgr.ep))
 	for k := range mgr.ep {
 		l, ok := mgr.ps[k]
 		if !ok {
 			panic(xerrors.Errorf("could not find a listener for end-point %q", k))
 		}
 
-		ps = append(ps, Port{
+		eps = append(eps, EndPoint{
 			Name: k,
 			Addr: l.l.Addr().String(),
 			Type: "", // FIXME(sbinet)
 		})
 	}
 
-	return ps
+	return eps
 }
 
 func (mgr *omgr) onReset(ctx context.Context) error {
@@ -215,6 +275,13 @@ func (mgr *omgr) onStart(ctx context.Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
+	mgr.done = make(chan struct{})
+
+	if len(mgr.ps) == 0 {
+		close(mgr.done)
+		return nil
+	}
+
 	for k := range mgr.ps {
 		out := mgr.ps[k]
 		fct := mgr.ep[k]
@@ -224,29 +291,55 @@ func (mgr *omgr) onStart(ctx context.Context) error {
 	return nil
 }
 
+func (mgr *omgr) onStop(ctx context.Context) error {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	select {
+	case <-mgr.done:
+		return nil
+	case <-ctx.Done():
+		return xerrors.Errorf("on-stop failed: %w", ctx.Err())
+	}
+
+	return xerrors.Errorf("impossible")
+}
+
 func (mgr *omgr) run(ctx context.Context, ep string, op *oport, f OutputHandler) {
+	defer close(mgr.done)
+
 	for {
 		select {
 		case <-ctx.Done():
+			// send downstream clients the eof-frame poison pill
+			err := op.send(eofFrame)
+			if err != nil {
+				log.Errorf("could not send eof-frame for %q (state=%v->%v): %+v", ep, mgr.srv.getCurState(), mgr.srv.getNextState(), err)
+			}
 			return
 		default:
 			var resp Frame
 			err := f(ctx, &resp)
 			if err != nil {
-				log.Errorf("could not process data frame for %q: %v", ep, err)
+				log.Errorf("could not process data frame for %q: %+v", ep, err)
 				continue
 			}
 
 			buf := new(bytes.Buffer)
 			err = SendFrame(ctx, buf, resp)
 			if err != nil {
-				log.Errorf("could not serialize data frame for %q: %v", ep, err)
+				log.Errorf("could not serialize data frame for %q: %+v", ep, err)
 				continue
 			}
 
 			err = op.send(buf.Bytes())
 			if err != nil {
-				log.Errorf("could not send data frame for %q: %v", ep, err)
+				switch state := mgr.srv.getNextState(); state {
+				case fsm.Stopped:
+					// ok
+				default:
+					log.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
+				}
 				if err, ok := err.(net.Error); ok && !err.Temporary() {
 					return
 				}
@@ -321,4 +414,77 @@ func (mgr *cmdmgr) endpoint(name string) (CmdHandler, bool) {
 	defer mgr.mu.RUnlock()
 	h, ok := mgr.ep[name]
 	return h, ok
+}
+
+type oport struct {
+	name  string
+	srv   *Server
+	l     net.Listener
+	mu    sync.RWMutex
+	conns []net.Conn
+}
+
+func (o *oport) accept() {
+	for {
+		conn, err := o.l.Accept()
+		if err != nil {
+			log.Errorf("could not accept conn for end-point %q: %v", o.name, err)
+			if err.(net.Error).Temporary() {
+				continue
+			}
+			return
+		}
+		setupTCPConn(conn.(*net.TCPConn))
+
+		o.mu.Lock()
+		o.conns = append(o.conns, conn)
+		o.mu.Unlock()
+	}
+}
+
+func (o *oport) onReset() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	var err error
+	for _, conn := range o.conns {
+		e := conn.Close()
+		if e != nil {
+			err = e
+		}
+	}
+	o.conns = o.conns[:0]
+
+	return err
+}
+
+func (o *oport) onStop() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	var err error
+	for _, conn := range o.conns {
+		e := conn.Close()
+		if e != nil {
+			err = e
+		}
+	}
+	o.conns = o.conns[:0]
+
+	return err
+}
+
+func (o *oport) send(data []byte) error {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	var grp errgroup.Group
+	for i := range o.conns {
+		conn := o.conns[i]
+		grp.Go(func() error {
+			_, err := conn.Write(data)
+			return err
+		})
+	}
+	return grp.Wait()
 }

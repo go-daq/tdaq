@@ -13,12 +13,13 @@ import (
 type StateKind uint8
 
 const (
-	Error StateKind = iota
-	UnConf
-	UnInit
+	UnConf StateKind = iota
 	Conf
+	Init
 	Stopped
 	Running
+	Exiting
+	Error
 )
 
 type Status struct {

@@ -12,9 +12,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
-	"net"
 
-	"github.com/go-daq/tdaq/fsm"
 	"golang.org/x/xerrors"
 )
 
@@ -26,18 +24,11 @@ type Unmarshaler interface {
 	UnmarshalTDAQ(p []byte) error
 }
 
-type HandlerFunc func(ctx context.Context, resp *Frame, req Frame) error
-
-type procConn struct {
-	conn   net.Conn
-	status fsm.Status
-}
-
 type Frame struct {
-	Len  int64
-	Type FrameType
-	Path string
-	Body []byte
+	Len  int64     // length of frame (Type+Path+Body)
+	Type FrameType // type of frame (cmd,data,err,ok)
+	Path string    // end-point path
+	Body []byte    // frame payload
 }
 
 type FrameType byte
@@ -47,8 +38,22 @@ const (
 	FrameCmd
 	FrameData
 	FrameOK
+	FrameEOF
 	FrameErr
 )
+
+var (
+	eofFrame []byte
+)
+
+func init() {
+	buf := new(bytes.Buffer)
+	err := sendFrame(context.Background(), buf, FrameEOF, nil, nil)
+	if err != nil {
+		panic(xerrors.Errorf("tdaq: could not pre-serialize eof-frame: %w", err))
+	}
+	eofFrame = buf.Bytes()
+}
 
 func SendData(ctx context.Context, w io.Writer, path, data []byte) error {
 	return sendFrame(ctx, w, FrameData, path, data)
@@ -90,29 +95,26 @@ func RecvFrame(ctx context.Context, r io.Reader) (frame Frame, err error) {
 	return frame, nil
 }
 
-type handlerFunc func(ctx context.Context, resp *Frame, req Frame) error
-type cmdHandlerFunc func(ctx context.Context, resp *Frame, cmd Cmd) error
-
-type Port struct {
+type EndPoint struct {
 	Name string
 	Addr string
 	Type string
 }
 
-func (p Port) MarshalTDAQ() ([]byte, error) {
+func (ep EndPoint) MarshalTDAQ() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
-	enc.WriteStr(p.Name)
-	enc.WriteStr(p.Addr)
-	enc.WriteStr(p.Type)
+	enc.WriteStr(ep.Name)
+	enc.WriteStr(ep.Addr)
+	enc.WriteStr(ep.Type)
 
 	return buf.Bytes(), enc.err
 }
 
-func (p *Port) UnmarshalTDAQ(b []byte) error {
+func (ep *EndPoint) UnmarshalTDAQ(b []byte) error {
 	dec := NewDecoder(bytes.NewReader(b))
-	p.Name = dec.ReadStr()
-	p.Addr = dec.ReadStr()
-	p.Type = dec.ReadStr()
+	ep.Name = dec.ReadStr()
+	ep.Addr = dec.ReadStr()
+	ep.Type = dec.ReadStr()
 	return dec.err
 }
