@@ -9,10 +9,54 @@
 
 `tdaq` is a toolkit to create distributed DAQ systems, over TCP/IP.
 
-## installation
+## Installation
 
 ```
 $> go get github.com/go-daq/tdaq/...
 ```
 
+## Example
 
+In a terminal, launch the `run-control`:
+
+```
+$> tdaq-runctl
+```
+
+In a second terminal, launch the `tdaq-datasrc` data producer application:
+
+```
+$> tdaq-datasrc
+tdaq                 DBG  received /config command... (data-src)
+tdaq                 DBG  received /init command... (data-src)
+tdaq                 DBG  received /reset command... (data-src)
+tdaq                 DBG  received /config command... (data-src)
+tdaq                 DBG  received /init command... (data-src)
+tdaq                 DBG  received /start command... (data-src)
+tdaq                 DBG  received cmd CmdStatus
+tdaq                 DBG  received cmd CmdLog
+tdaq                 DBG  run-done
+tdaq                 DBG  received /stop command... (data-src) -> n=140
+tdaq                 DBG  received /start command... (data-src)
+tdaq                 DBG  run-done
+tdaq                 DBG  received /stop command... (data-src) -> n=240
+tdaq                 DBG  received "/term" command... (data-src)
+```
+
+In a third terminal, launch the `tdaq-datasink` data consumer application:
+
+```
+$> tdaq-datasink
+tdaq                 DBG  received /config command... (data-sink)
+tdaq                 DBG  received /init command... (data-sink)
+tdaq                 DBG  received /reset command... (data-sink)
+tdaq                 DBG  received /config command... (data-sink)
+tdaq                 DBG  received /init command... (data-sink)
+tdaq                 DBG  received /start command... (data-sink)
+tdaq                 DBG  received cmd CmdStatus
+tdaq                 DBG  received cmd CmdLog
+tdaq                 DBG  received /stop command... (data-sink) -> n=140
+tdaq                 DBG  received /start command... (data-sink)
+tdaq                 DBG  received /stop command... (data-sink) -> n=240
+tdaq                 DBG  received "/term" command... (data-sink)
+```
