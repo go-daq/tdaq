@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package tdaq is a minimal toolkit to implement a tiny data acquisition system.
 package tdaq // import "github.com/go-daq/tdaq"
 
 //go:generate stringer -type CmdType -output z_cmdtype_string.go .
