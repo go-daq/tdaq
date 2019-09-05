@@ -1,0 +1,52 @@
+language: go
+go_import_path: github.com/go-daq/tdaq
+os:
+  - linux
+
+env:
+ - TAGS=""
+
+cache:
+ directories:
+   - $HOME/.cache/go-build
+   - $HOME/gopath/pkg/mod
+
+git:
+ depth: 10
+
+matrix:
+ fast_finish: true
+ include:
+   - go: 1.13.x
+     env:
+       - TAGS=""
+       - COVERAGE="-coverpkg=github.com/go-daq/tdaq/..."
+   - go: 1.12.x
+     env:
+       - TAGS=""
+   - go: 1.11.x
+     env:
+       - TAGS=""
+   - go: master
+     env:
+       - TAGS=""
+       - COVERAGE="-race"
+       - GOPROXY="https://proxy.golang.org"
+       - GO111MODULE="on"
+
+sudo: required
+
+notifications:
+  email:
+    recipients:
+      - binet@cern.ch
+    on_success: always
+    on_failure: always
+
+script:
+ - go get -d -t -v ./...
+ - go install -v $TAGS ./...
+ - go run ./ci/run-tests.go $TAGS $COVERAGE
+
+after_success:
+ - bash <(curl -s https://codecov.io/bash)
