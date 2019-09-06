@@ -197,9 +197,18 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 			switch {
 			case err == nil:
 				// ok
+			case xerrors.Is(err, io.EOF):
+				switch state := srv.getNextState(); state {
+				case fsm.Exiting:
+					// ok
+				default:
+					log.Warnf("connection to run-ctl: %+v", err)
+				}
+				return
+
 			default:
 				var nerr net.Error
-				if xerrors.As(err, &nerr); !nerr.Temporary() {
+				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
 					switch state := srv.getNextState(); state {
 					case fsm.Exiting:
 						// ok
