@@ -19,7 +19,6 @@ type CmdType byte
 const (
 	CmdUnknown CmdType = iota
 	CmdJoin
-	CmdConnect
 	CmdConfig
 	CmdInit
 	CmdReset
@@ -33,7 +32,6 @@ const (
 var cmdNames = [...][]byte{
 	CmdUnknown: []byte("/unknown"),
 	CmdJoin:    []byte("/join"),
-	CmdConnect: []byte("/connect"),
 	CmdConfig:  []byte("/config"),
 	CmdInit:    []byte("/init"),
 	CmdReset:   []byte("/reset"),
@@ -77,8 +75,6 @@ func (raw Cmd) cmd() (cmd Cmder, err error) {
 		var c JoinCmd
 		err = c.UnmarshalTDAQ(raw.Body[1:])
 		cmd = &c
-	case CmdConnect:
-		panic("not implemented")
 	case CmdInit:
 		panic("not implemented")
 	case CmdConfig:
