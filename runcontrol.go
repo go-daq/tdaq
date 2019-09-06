@@ -61,9 +61,6 @@ func (rctl *RunControl) Run(ctx context.Context) error {
 	//	go rctl.cmdsLoop(ctx)
 	//	go rctl.run(ctx)
 
-	// FIXME(sbinet): remove
-	go rctl.dbgloop(ctx)
-
 	for {
 		select {
 		case <-rctl.quit:

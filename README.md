@@ -35,10 +35,8 @@ tdaq                 DBG  received /init command... (data-src)
 tdaq                 DBG  received /start command... (data-src)
 tdaq                 DBG  received cmd CmdStatus
 tdaq                 DBG  received cmd CmdLog
-tdaq                 DBG  run-done
 tdaq                 DBG  received /stop command... (data-src) -> n=140
 tdaq                 DBG  received /start command... (data-src)
-tdaq                 DBG  run-done
 tdaq                 DBG  received /stop command... (data-src) -> n=240
 tdaq                 DBG  received "/term" command... (data-src)
 ```
