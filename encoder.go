@@ -21,6 +21,8 @@ func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w, buf: make([]byte, 8)}
 }
 
+func (enc *Encoder) Err() error { return enc.err }
+
 func (enc *Encoder) WriteI8(v int8) {
 	if enc.err != nil {
 		return

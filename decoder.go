@@ -31,6 +31,8 @@ func NewDecoder(r io.Reader) *Decoder {
 	return &Decoder{r: r, buf: make([]byte, 8)}
 }
 
+func (dec *Decoder) Err() error { return dec.err }
+
 func (dec *Decoder) load(n int) {
 	if dec.err != nil {
 		copy(dec.buf, []byte{0, 0, 0, 0, 0, 0, 0, 0})
