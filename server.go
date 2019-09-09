@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
@@ -43,11 +44,11 @@ type Server struct {
 	quit chan struct{} // term channel
 }
 
-func New(rctl, name string) *Server {
+func New(cfg config.Process) *Server {
 	srv := &Server{
-		rc:   rctl,
-		name: name,
-		msg:  log.NewMsgStream(name, log.LvlInfo, os.Stdout),
+		rc:   cfg.RunCtl,
+		name: cfg.Name,
+		msg:  log.NewMsgStream(cfg.Name, cfg.Level, os.Stdout),
 		cmgr: newCmdMgr(
 			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",

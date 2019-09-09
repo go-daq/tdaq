@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
@@ -43,7 +44,7 @@ type RunControl struct {
 	runNbr uint64
 }
 
-func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl, error) {
+func NewRunControl(cfg config.Process, stdin io.Reader, stdout io.Writer) (*RunControl, error) {
 	if stdin == nil {
 		stdin = os.Stdin
 	}
@@ -61,13 +62,14 @@ func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl,
 		quit:      make(chan struct{}),
 		stdin:     stdin,
 		stdout:    out,
-		msg:       log.NewMsgStream("run-ctl", log.LvlInfo, out),
+		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
 		conns:     make(map[net.Conn]descr),
 		listening: true,
 		runNbr:    uint64(time.Now().UTC().Unix()),
 	}
 
-	srv, err := net.Listen("tcp", addr)
+	rc.msg.Infof("listening on %q...", cfg.RunCtl)
+	srv, err := net.Listen("tcp", cfg.RunCtl)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create TCP cmd server: %w", err)
 	}
@@ -77,13 +79,13 @@ func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl,
 }
 
 func (rc *RunControl) Run(ctx context.Context) error {
+	rc.msg.Infof("waiting for commands...")
 	defer rc.stdout.Sync()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	go rc.serve(ctx)
 	go rc.input(ctx, rc.stdin)
-	//	go rctl.cmdsLoop(ctx)
 	//	go rctl.run(ctx)
 
 	for {
@@ -223,10 +225,6 @@ func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 	}
 	rc.mu.Unlock()
 
-}
-
-func (rc *RunControl) cmdsLoop(ctx context.Context) {
-	panic("not implemented")
 }
 
 func (rc *RunControl) run(ctx context.Context) {

@@ -22,7 +22,7 @@ func main() {
 		seed: 1234,
 	}
 
-	srv := tdaq.New(cmd.RunCtl, cmd.Name)
+	srv := tdaq.New(cmd)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)

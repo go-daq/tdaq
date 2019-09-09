@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-daq/tdaq/config"
+	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -30,7 +32,13 @@ func TestRunControl(t *testing.T) {
 	addr := ":" + port
 	stdout := new(bytes.Buffer)
 
-	rc, err := NewRunControl(addr, os.Stdin, stdout)
+	cfg := config.Process{
+		Name:   "run-ctl",
+		Level:  log.LvlInfo,
+		RunCtl: addr,
+	}
+
+	rc, err := NewRunControl(cfg, os.Stdin, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
@@ -50,7 +58,12 @@ func TestRunControl(t *testing.T) {
 			seed: 1234,
 		}
 
-		srv := New(addr, "data-src")
+		cfg := config.Process{
+			Name:   "data-src",
+			Level:  log.LvlInfo,
+			RunCtl: addr,
+		}
+		srv := New(cfg)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -71,7 +84,12 @@ func TestRunControl(t *testing.T) {
 		grp.Go(func() error {
 			dev := testConsumer{}
 
-			srv := New(addr, name)
+			cfg := config.Process{
+				Name:   name,
+				Level:  log.LvlInfo,
+				RunCtl: addr,
+			}
+			srv := New(cfg)
 			srv.CmdHandle("/init", dev.OnInit)
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)

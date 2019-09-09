@@ -6,21 +6,17 @@ package main // import "github.com/go-daq/tdaq/cmd/tdaq-runctl"
 
 import (
 	"context"
-	"flag"
 	"os"
 
 	"github.com/go-daq/tdaq"
+	"github.com/go-daq/tdaq/flags"
 	"github.com/go-daq/tdaq/log"
 )
 
 func main() {
-	var (
-		addr = flag.String("addr", ":44000", "[addr]:port to listen on")
-	)
+	cmd := flags.New()
 
-	flag.Parse()
-
-	rc, err := tdaq.NewRunControl(*addr, os.Stdin, os.Stdout)
+	rc, err := tdaq.NewRunControl(cmd, os.Stdin, os.Stdout)
 	if err != nil {
 		log.Errorf("could not create run control: %v", err)
 		os.Exit(1)

@@ -17,7 +17,7 @@ func main() {
 	cmd := flags.New()
 
 	dev := device{}
-	srv := tdaq.New(cmd.RunCtl, cmd.Name)
+	srv := tdaq.New(cmd)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)
