@@ -5,6 +5,7 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -119,6 +120,57 @@ func (rc *RunControl) serve(ctx context.Context) {
 				continue
 			}
 			go rc.handleConn(ctx, conn)
+		}
+	}
+}
+
+func (rc *RunControl) input(ctx context.Context, r io.Reader) {
+	var (
+		err  error
+		sc   = bufio.NewScanner(r)
+		quit = false
+	)
+
+	for sc.Scan() {
+		err = sc.Err()
+		if err != nil {
+			rc.msg.Errorf("could not scan input command: %+v", err)
+			return
+		}
+		buf := sc.Bytes()
+		if len(buf) == 0 {
+			continue
+		}
+		var fct func(context.Context) error
+		switch buf[0] {
+		case 'c':
+			fct = rc.doConfig
+		case 'i':
+			fct = rc.doInit
+		case 'x':
+			fct = rc.doReset
+		case 'r':
+			fct = rc.doStart
+		case 's':
+			fct = rc.doStop
+		case 'q':
+			fct = rc.doTerm
+			defer close(rc.quit)
+			quit = true
+		default:
+			rc.msg.Warnf("unknown command %q", buf)
+			continue
+		}
+		err = fct(ctx)
+		if err != nil {
+			rc.msg.Errorf("could not send command %q: %+v", buf[0], err)
+			if quit {
+				return
+			}
+			continue
+		}
+		if quit {
+			return
 		}
 	}
 }
