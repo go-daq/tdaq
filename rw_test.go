@@ -21,6 +21,34 @@ func TestTranscoder(t *testing.T) {
 		want interface{}
 	}{
 		{
+			name: "bool-false",
+			wfct: func(w io.Writer, v interface{}) error {
+				enc := tdaq.NewEncoder(w)
+				enc.WriteBool(v.(bool))
+				return enc.Err()
+			},
+			rfct: func(r io.Reader) (interface{}, error) {
+				dec := tdaq.NewDecoder(r)
+				v := dec.ReadBool()
+				return v, dec.Err()
+			},
+			want: false,
+		},
+		{
+			name: "bool-true",
+			wfct: func(w io.Writer, v interface{}) error {
+				enc := tdaq.NewEncoder(w)
+				enc.WriteBool(v.(bool))
+				return enc.Err()
+			},
+			rfct: func(r io.Reader) (interface{}, error) {
+				dec := tdaq.NewDecoder(r)
+				v := dec.ReadBool()
+				return v, dec.Err()
+			},
+			want: true,
+		},
+		{
 			name: "u8",
 			wfct: func(w io.Writer, v interface{}) error {
 				enc := tdaq.NewEncoder(w)
@@ -212,8 +240,89 @@ func TestTranscoder(t *testing.T) {
 					t.Fatalf("expected io.EOF, got %+v", err)
 				}
 			}
+			{
+				buf := new(bytes.Buffer)
+				enc := tdaq.NewEncoder(buf)
+				err := enc.Encode(tt.want)
+				if err != nil {
+					t.Fatalf("could not encode value %v: %+v", tt.want, err)
+				}
+
+				dec := tdaq.NewDecoder(buf)
+				got := reflect.New(reflect.TypeOf(tt.want)).Elem()
+				err = dec.Decode(got.Addr().Interface())
+				if err != nil {
+					t.Fatalf("could not decode value %v: %+v", tt.want, err)
+				}
+
+				if got, want := got.Interface(), tt.want; !reflect.DeepEqual(got, want) {
+					t.Fatalf("invalid r/w round-trip:\ngot = %v\nwant= %v\n", got, want)
+				}
+			}
+			{
+				enc := tdaq.NewEncoder(failWriter{})
+				err := enc.Encode(tt.want)
+				if err == nil {
+					t.Fatalf("expected an error")
+				}
+				err = enc.Encode(tt.want)
+				if err == nil {
+					t.Fatalf("expected an error")
+				}
+
+				dec := tdaq.NewDecoder(failReader{})
+				got := reflect.New(reflect.TypeOf(tt.want)).Elem()
+				err = dec.Decode(got.Addr().Interface())
+				if err == nil {
+					t.Fatalf("expected an error")
+				}
+				err = dec.Decode(got.Addr().Interface())
+				if err == nil {
+					t.Fatalf("expected an error")
+				}
+			}
 		})
 	}
+}
+func TestMarshaler(t *testing.T) {
+	want := testDataType{n: "hello", v: -42}
+	buf := new(bytes.Buffer)
+	enc := tdaq.NewEncoder(buf)
+	err := enc.Encode(want)
+	if err != nil {
+		t.Fatalf("could not encode value %v: %+v", want, err)
+	}
+
+	var got testDataType
+	dec := tdaq.NewDecoder(buf)
+	err = dec.Decode(&got)
+	if err != nil {
+		t.Fatalf("could not decode value %v: %+v", want, err)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("invalid r/w round-trop:\ngot = %#v\nwant= %#v\n", got, want)
+	}
+}
+
+type testDataType struct {
+	n string
+	v int64
+}
+
+func (t testDataType) MarshalTDAQ() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	enc := tdaq.NewEncoder(buf)
+	enc.WriteStr(t.n)
+	enc.WriteI64(t.v)
+	return buf.Bytes(), enc.Err()
+}
+
+func (t *testDataType) UnmarshalTDAQ(p []byte) error {
+	dec := tdaq.NewDecoder(bytes.NewReader(p))
+	t.n = dec.ReadStr()
+	t.v = dec.ReadI64()
+	return dec.Err()
 }
 
 type failReader struct{}
@@ -227,4 +336,7 @@ func (failWriter) Write([]byte) (int, error) { return 0, io.EOF }
 var (
 	_ io.Reader = (*failReader)(nil)
 	_ io.Writer = (*failWriter)(nil)
+
+	_ tdaq.Marshaler   = (*testDataType)(nil)
+	_ tdaq.Unmarshaler = (*testDataType)(nil)
 )
