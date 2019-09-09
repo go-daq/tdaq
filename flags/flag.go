@@ -7,13 +7,14 @@ package flags // import "github.com/go-daq/tdaq/flags"
 
 import (
 	"flag"
-	"fmt"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/log"
+	"golang.org/x/xerrors"
 )
 
 func New() config.Process {
@@ -31,28 +32,63 @@ func New() config.Process {
 	cmd.Args = flag.Args()
 
 	if cmd.Name == "" {
-		fmt.Fprintf(os.Stderr, "missing tdaq process name\n")
-		flag.Usage()
-		os.Exit(1)
+		cmd.Name = path.Base(os.Args[0])
 	}
 
+	level, err := parseLevel(lvl)
+	if err != nil {
+		log.Fatalf("could not parse msg-level: %+v", err)
+	}
+	cmd.Level = level
+
+	return cmd
+}
+
+func NewRunControl() config.RunCtl {
+	var (
+		cmd config.RunCtl
+		lvl string
+	)
+
+	flag.StringVar(&cmd.Name, "id", "", "name of the tdaq process")
+	flag.StringVar(&lvl, "lvl", "INFO", "msgstream level")
+	flag.StringVar(&cmd.RunCtl, "rc-addr", ":44000", "[addr]:port of run-ctl process")
+	flag.StringVar(&cmd.Web, "web", "", "[addr]:port of run-control web GUI")
+	flag.BoolVar(&cmd.Interactive, "i", false, "enable interactive run-ctl shell")
+
+	flag.Parse()
+
+	cmd.Args = flag.Args()
+
+	if cmd.Name == "" {
+		cmd.Name = path.Base(os.Args[0])
+	}
+
+	level, err := parseLevel(lvl)
+	if err != nil {
+		log.Fatalf("could not parse msg-level: %+v", err)
+	}
+	cmd.Level = level
+
+	return cmd
+}
+
+func parseLevel(lvl string) (log.Level, error) {
 	lvl = strings.ToLower(lvl)
 	switch {
 	case strings.HasPrefix(lvl, "dbg"), strings.HasPrefix(lvl, "debug"):
-		cmd.Level = log.LvlDebug
+		return log.LvlDebug, nil
 	case strings.HasPrefix(lvl, "info"):
-		cmd.Level = log.LvlInfo
+		return log.LvlInfo, nil
 	case strings.HasPrefix(lvl, "warn"):
-		cmd.Level = log.LvlWarning
+		return log.LvlWarning, nil
 	case strings.HasPrefix(lvl, "err"):
-		cmd.Level = log.LvlError
+		return log.LvlError, nil
 	default:
 		v, err := strconv.Atoi(lvl)
 		if err != nil {
-			log.Fatalf("unknown level value %q: %+v", lvl, err)
+			return 0, xerrors.Errorf("unknown level value %q: %+v", lvl, err)
 		}
-		cmd.Level = log.Level(v)
+		return log.Level(v), nil
 	}
-
-	return cmd
 }

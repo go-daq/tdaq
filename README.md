@@ -21,40 +21,57 @@ In a terminal, launch the `run-control`:
 
 ```
 $> tdaq-runctl
+tdaq-runctl 
+tdaq-runctl          INFO listening on ":44000"...
+tdaq-runctl          INFO waiting for commands...
+tdaq-runctl          INFO received JOIN from conn 127.0.0.1:49752
+tdaq-runctl          INFO   proc: "tdaq-datasrc"
+tdaq-runctl          INFO    - outputs:
+tdaq-runctl          INFO      - name: "/adc"
+tdaq-runctl          INFO        addr: "[::]:38713"
+tdaq-runctl          INFO received JOIN from conn 127.0.0.1:49754
+tdaq-runctl          INFO   proc: "tdaq-datasink"
+tdaq-runctl          INFO    - inputs:
+tdaq-runctl          INFO      - name: "/adc"
+tdaq-runctl> /config
+tdaq-runctl          INFO /config processes...
+tdaq-runctl> /init
+tdaq-runctl          INFO /init processes...
+tdaq-runctl> /start
+tdaq-runctl          INFO /start processes...
+tdaq-runctl> /stop
+tdaq-runctl          INFO /stop processes...
+tdaq-runctl> /start
+tdaq-runctl          INFO /start processes...
+tdaq-runctl> /stop
+tdaq-runctl          INFO /stop processes...
+tdaq-runctl> /term
+tdaq-runctl          INFO /term processes...
 ```
 
 In a second terminal, launch the `tdaq-datasrc` data producer application:
 
 ```
 $> tdaq-datasrc
-tdaq                 DBG  received /config command... (data-src)
-tdaq                 DBG  received /init command... (data-src)
-tdaq                 DBG  received /reset command... (data-src)
-tdaq                 DBG  received /config command... (data-src)
-tdaq                 DBG  received /init command... (data-src)
-tdaq                 DBG  received /start command... (data-src)
-tdaq                 DBG  received cmd CmdStatus
-tdaq                 DBG  received cmd CmdLog
-tdaq                 DBG  received /stop command... (data-src) -> n=140
-tdaq                 DBG  received /start command... (data-src)
-tdaq                 DBG  received /stop command... (data-src) -> n=240
-tdaq                 DBG  received "/term" command... (data-src)
+tdaq-datasrc -lvl dbg
+tdaq-datasrc         DBG  received /config command...
+tdaq-datasrc         DBG  received /init command...
+tdaq-datasrc         DBG  received /start command...
+tdaq-datasrc         DBG  received /stop command... -> n=57
+tdaq-datasrc         DBG  received /start command...
+tdaq-datasrc         DBG  received /stop command... -> n=457
+tdaq-datasrc         DBG  received "/term" command...
 ```
 
 In a third terminal, launch the `tdaq-datasink` data consumer application:
 
 ```
-$> tdaq-datasink
-tdaq                 DBG  received /config command... (data-sink)
-tdaq                 DBG  received /init command... (data-sink)
-tdaq                 DBG  received /reset command... (data-sink)
-tdaq                 DBG  received /config command... (data-sink)
-tdaq                 DBG  received /init command... (data-sink)
-tdaq                 DBG  received /start command... (data-sink)
-tdaq                 DBG  received cmd CmdStatus
-tdaq                 DBG  received cmd CmdLog
-tdaq                 DBG  received /stop command... (data-sink) -> n=140
-tdaq                 DBG  received /start command... (data-sink)
-tdaq                 DBG  received /stop command... (data-sink) -> n=240
-tdaq                 DBG  received "/term" command... (data-sink)
+$> tdaq-datasink -lvl dbg
+tdaq-datasink        DBG  received /config command...
+tdaq-datasink        DBG  received /init command...
+tdaq-datasink        DBG  received /start command...
+tdaq-datasink        DBG  received /stop command... -> n=57
+tdaq-datasink        DBG  received /start command...
+tdaq-datasink        DBG  received /stop command... -> n=457
+tdaq-datasink        DBG  received "/term" command...
 ```

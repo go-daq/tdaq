@@ -5,7 +5,6 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -33,7 +32,7 @@ type RunControl struct {
 
 	srv net.Listener
 
-	stdin  io.Reader
+	cmds   <-chan CmdType
 	stdout log.WriteSyncer
 
 	mu        sync.RWMutex
@@ -44,10 +43,7 @@ type RunControl struct {
 	runNbr uint64
 }
 
-func NewRunControl(cfg config.Process, stdin io.Reader, stdout io.Writer) (*RunControl, error) {
-	if stdin == nil {
-		stdin = os.Stdin
-	}
+func NewRunControl(cfg config.RunCtl, cmds <-chan CmdType, stdout io.Writer) (*RunControl, error) {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
@@ -60,7 +56,7 @@ func NewRunControl(cfg config.Process, stdin io.Reader, stdout io.Writer) (*RunC
 	}
 	rc := &RunControl{
 		quit:      make(chan struct{}),
-		stdin:     stdin,
+		cmds:      cmds,
 		stdout:    out,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
 		conns:     make(map[net.Conn]descr),
@@ -85,8 +81,7 @@ func (rc *RunControl) Run(ctx context.Context) error {
 	defer cancel()
 
 	go rc.serve(ctx)
-	go rc.input(ctx, rc.stdin)
-	//	go rctl.run(ctx)
+	go rc.input(ctx)
 
 	for {
 		select {
@@ -126,53 +121,54 @@ func (rc *RunControl) serve(ctx context.Context) {
 	}
 }
 
-func (rc *RunControl) input(ctx context.Context, r io.Reader) {
+func (rc *RunControl) input(ctx context.Context) {
 	var (
 		err  error
-		sc   = bufio.NewScanner(r)
 		quit = false
 	)
 
-	for sc.Scan() {
-		err = sc.Err()
-		if err != nil {
-			rc.msg.Errorf("could not scan input command: %+v", err)
+	for {
+		select {
+		case <-rc.quit:
 			return
-		}
-		buf := sc.Bytes()
-		if len(buf) == 0 {
-			continue
-		}
-		var fct func(context.Context) error
-		switch buf[0] {
-		case 'c':
-			fct = rc.doConfig
-		case 'i':
-			fct = rc.doInit
-		case 'x':
-			fct = rc.doReset
-		case 'r':
-			fct = rc.doStart
-		case 's':
-			fct = rc.doStop
-		case 'q':
-			fct = rc.doTerm
-			defer close(rc.quit)
-			quit = true
-		default:
-			rc.msg.Warnf("unknown command %q", buf)
-			continue
-		}
-		err = fct(ctx)
-		if err != nil {
-			rc.msg.Errorf("could not send command %q: %+v", buf[0], err)
+		case <-ctx.Done():
+			err := ctx.Err()
+			if err != nil {
+				rc.msg.Errorf("context errored during run-ctl input: %+v", err)
+			}
+			return
+		case cmd := <-rc.cmds:
+			var fct func(context.Context) error
+			switch cmd {
+			case CmdConfig:
+				fct = rc.doConfig
+			case CmdInit:
+				fct = rc.doInit
+			case CmdReset:
+				fct = rc.doReset
+			case CmdStart:
+				fct = rc.doStart
+			case CmdStop:
+				fct = rc.doStop
+			case CmdTerm:
+				fct = rc.doTerm
+				defer close(rc.quit)
+				quit = true
+			default:
+				rc.msg.Warnf("unknown command %v", cmd)
+				continue
+			}
+			err = fct(ctx)
+			if err != nil {
+				rc.msg.Errorf("could not send command %v: %+v", cmd, err)
+				if quit {
+					return
+				}
+				continue
+			}
 			if quit {
 				return
 			}
-			continue
-		}
-		if quit {
-			return
 		}
 	}
 }
@@ -251,50 +247,6 @@ func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 	}
 	rc.mu.Unlock()
 
-}
-
-func (rc *RunControl) run(ctx context.Context) {
-	panic("not implemented")
-}
-
-func (rc *RunControl) dbgloop(ctx context.Context) {
-	time.Sleep(8 * time.Second)
-
-	for _, tt := range []struct {
-		cmd CmdType
-		dt  time.Duration
-		f   func(context.Context) error
-	}{
-		{CmdConfig, 5 * time.Second, rc.doConfig},
-		{CmdInit, 2 * time.Second, rc.doInit},
-		{CmdReset, 2 * time.Second, rc.doReset},
-		{CmdConfig, 2 * time.Second, rc.doConfig},
-		{CmdInit, 2 * time.Second, rc.doInit},
-		{CmdStart, 10 * time.Second, rc.doStart},
-		{CmdStatus, 2 * time.Second, rc.doStatus},
-		{CmdLog, 2 * time.Second, nil},
-		{CmdStop, 2 * time.Second, rc.doStop},
-		{CmdStart, 10 * time.Second, rc.doStart},
-		{CmdStop, 2 * time.Second, rc.doStop},
-		{CmdTerm, 2 * time.Second, rc.doTerm},
-	} {
-		rc.msg.Debugf("--- cmd %v...", tt.cmd)
-		if tt.f != nil {
-			err := tt.f(ctx)
-			if err != nil {
-				rc.msg.Errorf("--- cmd %v failed: %v", tt.cmd, err)
-				continue
-			}
-		}
-		switch tt.cmd {
-		case CmdLog:
-			rc.broadcast(ctx, tt.cmd)
-		}
-		rc.msg.Debugf("--- cmd %v... [done]", tt.cmd)
-		time.Sleep(tt.dt)
-	}
-
-	close(rc.quit)
 }
 
 func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {

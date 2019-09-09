@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"strconv"
@@ -30,16 +29,16 @@ func TestRunControl(t *testing.T) {
 	}
 
 	addr := ":" + port
-	stdin, cmd := io.Pipe()
+	cmds := make(chan CmdType)
 	stdout := new(bytes.Buffer)
 
-	cfg := config.Process{
+	cfg := config.RunCtl{
 		Name:   "run-ctl",
 		Level:  log.LvlInfo,
 		RunCtl: addr,
 	}
 
-	rc, err := NewRunControl(cfg, stdin, stdout)
+	rc, err := NewRunControl(cfg, cmds, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
@@ -122,25 +121,21 @@ loop:
 
 	for _, tt := range []struct {
 		name string
-		cmd  byte
+		cmd  CmdType
 		dt   time.Duration
 	}{
-		{"config", 'c', 20 * time.Millisecond},
-		{"init", 'i', 20 * time.Millisecond},
-		{"reset", 'x', 10 * time.Millisecond},
-		{"config", 'c', 20 * time.Millisecond},
-		{"init", 'i', 20 * time.Millisecond},
-		{"start", 'r', 2 * time.Second},
-		{"stop", 's', 10 * time.Millisecond},
-		{"start", 'r', 2 * time.Second},
-		{"stop", 's', 10 * time.Millisecond},
-		{"term", 'q', 1 * time.Second},
+		{"config", CmdConfig, 20 * time.Millisecond},
+		{"init", CmdInit, 20 * time.Millisecond},
+		{"reset", CmdReset, 10 * time.Millisecond},
+		{"config", CmdConfig, 20 * time.Millisecond},
+		{"init", CmdInit, 20 * time.Millisecond},
+		{"start", CmdStart, 2 * time.Second},
+		{"stop", CmdStop, 10 * time.Millisecond},
+		{"start", CmdStart, 2 * time.Second},
+		{"stop", CmdStop, 10 * time.Millisecond},
+		{"term", CmdTerm, 1 * time.Second},
 	} {
-		_, err := cmd.Write([]byte{tt.cmd, '\n'})
-		if err != nil {
-			t.Logf("stdout:\n%v\n", stdout.String())
-			t.Fatalf("could not run %v: %+v", tt.name, err)
-		}
+		cmds <- tt.cmd
 		time.Sleep(tt.dt)
 	}
 

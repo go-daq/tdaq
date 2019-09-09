@@ -16,3 +16,14 @@ type Process struct {
 
 	Args []string
 }
+
+type RunCtl struct {
+	Name   string
+	Level  log.Level
+	RunCtl string
+	Web    string
+
+	Interactive bool
+
+	Args []string
+}
