@@ -206,7 +206,33 @@ func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	rc.msg.Infof("received JOIN from conn %v: %v", conn.RemoteAddr(), join)
+	rc.msg.Infof("received JOIN from conn %v", conn.RemoteAddr())
+	rc.msg.Infof("  proc: %q", join.Name)
+	if len(join.InEndPoints) > 0 {
+		rc.msg.Infof("   - inputs:")
+		for _, p := range join.InEndPoints {
+			rc.msg.Infof("     - name: %q", p.Name)
+			if p.Addr != "" {
+				rc.msg.Infof("       addr: %q", p.Addr)
+			}
+			if p.Type != "" {
+				rc.msg.Infof("       type: %q", p.Type)
+			}
+		}
+	}
+
+	if len(join.OutEndPoints) > 0 {
+		rc.msg.Infof("   - outputs:")
+		for _, p := range join.OutEndPoints {
+			rc.msg.Infof("     - name: %q", p.Name)
+			if p.Addr != "" {
+				rc.msg.Infof("       addr: %q", p.Addr)
+			}
+			if p.Type != "" {
+				rc.msg.Infof("       type: %q", p.Type)
+			}
+		}
+	}
 
 	err = sendFrame(ctx, conn, FrameOK, nil, nil)
 	if err != nil {
