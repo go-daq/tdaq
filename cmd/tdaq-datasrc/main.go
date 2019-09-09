@@ -11,16 +11,18 @@ import (
 	"time"
 
 	"github.com/go-daq/tdaq"
+	"github.com/go-daq/tdaq/flags"
 	"github.com/go-daq/tdaq/log"
 )
 
 func main() {
+	cmd := flags.New()
+
 	dev := datasrc{
-		name: "data-src",
 		seed: 1234,
 	}
 
-	srv := tdaq.New(":44000", dev.name)
+	srv := tdaq.New(cmd.RunCtl, cmd.Name)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)
@@ -39,8 +41,6 @@ func main() {
 }
 
 type datasrc struct {
-	name string
-
 	seed int64
 	rnd  *rand.Rand
 
@@ -49,12 +49,12 @@ type datasrc struct {
 }
 
 func (dev *datasrc) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /config command...")
 	return nil
 }
 
 func (dev *datasrc) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /init command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
@@ -62,7 +62,7 @@ func (dev *datasrc) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) e
 }
 
 func (dev *datasrc) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /reset command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
@@ -70,18 +70,18 @@ func (dev *datasrc) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) 
 }
 
 func (dev *datasrc) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /start command...")
 	return nil
 }
 
 func (dev *datasrc) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
-	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 
 func (dev *datasrc) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
+	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }
 

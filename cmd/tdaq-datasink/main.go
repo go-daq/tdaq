@@ -9,15 +9,15 @@ import (
 	"context"
 
 	"github.com/go-daq/tdaq"
+	"github.com/go-daq/tdaq/flags"
 	"github.com/go-daq/tdaq/log"
 )
 
 func main() {
-	dev := device{
-		name: "data-sink",
-	}
+	cmd := flags.New()
 
-	srv := tdaq.New(":44000", dev.name)
+	dev := device{}
+	srv := tdaq.New(cmd.RunCtl, cmd.Name)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)
@@ -34,41 +34,39 @@ func main() {
 }
 
 type device struct {
-	name string
-
 	n int
 }
 
 func (dev *device) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /config command...")
 	return nil
 }
 
 func (dev *device) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /init command...")
 	dev.n = 0
 	return nil
 }
 
 func (dev *device) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /reset command...")
 	dev.n = 0
 	return nil
 }
 
 func (dev *device) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /start command...")
 	return nil
 }
 
 func (dev *device) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
-	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 
 func (dev *device) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
+	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }
 
