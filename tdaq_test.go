@@ -20,6 +20,8 @@ import (
 )
 
 func TestRunControl(t *testing.T) {
+	t.Parallel()
+
 	port, err := getTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)

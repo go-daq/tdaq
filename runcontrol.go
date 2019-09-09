@@ -32,7 +32,7 @@ type RunControl struct {
 	srv net.Listener
 
 	stdin  io.Reader
-	stdout io.Writer
+	stdout log.WriteSyncer
 
 	mu        sync.RWMutex
 	msg       log.MsgStream
@@ -59,7 +59,7 @@ func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl,
 	rc := &RunControl{
 		quit:      make(chan struct{}),
 		stdin:     stdin,
-		stdout:    stdout,
+		stdout:    out,
 		msg:       log.NewMsgStream("run-ctl", log.LvlInfo, out),
 		conns:     make(map[net.Conn]descr),
 		listening: true,
@@ -76,6 +76,7 @@ func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl,
 }
 
 func (rctl *RunControl) Run(ctx context.Context) error {
+	defer rctl.stdout.Sync()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
