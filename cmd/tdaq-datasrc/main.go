@@ -48,46 +48,46 @@ type datasrc struct {
 	data chan []byte
 }
 
-func (dev *datasrc) OnConfig(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /config command... (%v)", dev.name)
+func (dev *datasrc) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *datasrc) OnInit(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /init command... (%v)", dev.name)
+func (dev *datasrc) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
 	return nil
 }
 
-func (dev *datasrc) OnReset(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /reset command... (%v)", dev.name)
+func (dev *datasrc) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
 	return nil
 }
 
-func (dev *datasrc) OnStart(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /start command... (%v)", dev.name)
+func (dev *datasrc) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *datasrc) OnStop(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+func (dev *datasrc) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
-	log.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
 	return nil
 }
 
-func (dev *datasrc) OnTerminate(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received %q command... (%v)", req.Path, dev.name)
+func (dev *datasrc) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
 	return nil
 }
 
-func (dev *datasrc) adc(ctx context.Context, dst *tdaq.Frame) error {
+func (dev *datasrc) adc(ctx tdaq.Context, dst *tdaq.Frame) error {
 	select {
-	case <-ctx.Done():
+	case <-ctx.Ctx.Done():
 		dst.Body = nil
 	case data := <-dev.data:
 		dst.Body = data
@@ -95,10 +95,10 @@ func (dev *datasrc) adc(ctx context.Context, dst *tdaq.Frame) error {
 	return nil
 }
 
-func (dev *datasrc) run(ctx context.Context) error {
+func (dev *datasrc) run(ctx tdaq.Context) error {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Ctx.Done():
 			return nil
 		default:
 			raw := make([]byte, 1024)

@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ type Server struct {
 	rctl net.Conn
 
 	mu   sync.RWMutex
+	msg  log.MsgStream
 	imgr *imgr
 	omgr *omgr
 	cmgr *cmdmgr
@@ -36,7 +38,7 @@ type Server struct {
 	runctx  context.Context
 	rundone context.CancelFunc
 	rungrp  *errgroup.Group
-	runfcts []func(context.Context) error
+	runfcts []func(Context) error
 
 	quit chan struct{} // term channel
 }
@@ -45,6 +47,7 @@ func New(rctl, name string) *Server {
 	srv := &Server{
 		rc:   rctl,
 		name: name,
+		msg:  log.NewMsgStream(name, log.LvlInfo, os.Stdout),
 		cmgr: newCmdMgr(
 			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",
@@ -202,7 +205,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 				case fsm.Exiting:
 					// ok
 				default:
-					log.Warnf("connection to run-ctl: %+v", err)
+					srv.msg.Warnf("connection to run-ctl: %+v", err)
 				}
 				return
 
@@ -213,7 +216,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 					case fsm.Exiting:
 						// ok
 					default:
-						log.Warnf("connection to run-ctl: %+v", err)
+						srv.msg.Warnf("connection to run-ctl: %+v", err)
 					}
 					return
 				}
@@ -247,7 +250,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 		}
 	}
 
-	var onCmd func(ctx context.Context, req Frame) error
+	var onCmd func(ctx Context, req Frame) error
 	switch name {
 	case "/config":
 		onCmd = srv.onConfig
@@ -290,7 +293,8 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	srv.setNextState(next)
 
-	errPre := onCmd(ctx, req)
+	tctx := Context{Ctx: ctx, Msg: srv.msg}
+	errPre := onCmd(tctx, req)
 	if errPre != nil {
 		log.Warnf("could not run %v pre-handler: %v", name, errPre)
 		resp.Type = FrameErr
@@ -298,7 +302,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 		next = fsm.Error
 	}
 
-	errH := h(ctx, &resp, req)
+	errH := h(tctx, &resp, req)
 	if errH != nil {
 		log.Warnf("could not run %v handler: %v", name, errH)
 		resp.Type = FrameErr
@@ -314,7 +318,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	}
 }
 
-func (srv *Server) onConfig(ctx context.Context, req Frame) error {
+func (srv *Server) onConfig(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -333,7 +337,7 @@ func (srv *Server) onConfig(ctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onInit(ctx context.Context, req Frame) error {
+func (srv *Server) onInit(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -347,7 +351,7 @@ func (srv *Server) onInit(ctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onReset(ctx context.Context, req Frame) error {
+func (srv *Server) onReset(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -371,7 +375,7 @@ func (srv *Server) onReset(ctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onStart(runctx context.Context, req Frame) error {
+func (srv *Server) onStart(runctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -402,7 +406,7 @@ func (srv *Server) onStart(runctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onStop(ctx context.Context, req Frame) error {
+func (srv *Server) onStop(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -432,21 +436,21 @@ func (srv *Server) onStop(ctx context.Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onTerm(ctx context.Context, req Frame) error {
+func (srv *Server) onTerm(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
 	return nil
 }
 
-func (srv *Server) onStatus(ctx context.Context, req Frame) error {
+func (srv *Server) onStatus(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
 	return nil
 }
 
-func (srv *Server) onLog(ctx context.Context, req Frame) error {
+func (srv *Server) onLog(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 

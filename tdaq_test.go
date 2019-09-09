@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -151,46 +150,46 @@ type testProducer struct {
 	data chan []byte
 }
 
-func (dev *testProducer) OnConfig(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /config command... (%v)", dev.name)
+func (dev *testProducer) OnConfig(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *testProducer) OnInit(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /init command... (%v)", dev.name)
+func (dev *testProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
 	return nil
 }
 
-func (dev *testProducer) OnReset(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /reset command... (%v)", dev.name)
+func (dev *testProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
 	return nil
 }
 
-func (dev *testProducer) OnStart(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /start command... (%v)", dev.name)
+func (dev *testProducer) OnStart(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *testProducer) OnStop(ctx context.Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnStop(ctx Context, resp *Frame, req Frame) error {
 	n := dev.n
-	log.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
 	return nil
 }
 
-func (dev *testProducer) OnTerminate(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received %q command... (%v)", req.Path, dev.name)
+func (dev *testProducer) OnTerminate(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
 	return nil
 }
 
-func (dev *testProducer) adc(ctx context.Context, dst *Frame) error {
+func (dev *testProducer) adc(ctx Context, dst *Frame) error {
 	select {
-	case <-ctx.Done():
+	case <-ctx.Ctx.Done():
 		dst.Body = nil
 	case data := <-dev.data:
 		dst.Body = data
@@ -198,10 +197,10 @@ func (dev *testProducer) adc(ctx context.Context, dst *Frame) error {
 	return nil
 }
 
-func (dev *testProducer) run(ctx context.Context) error {
+func (dev *testProducer) run(ctx Context) error {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Ctx.Done():
 			return nil
 		default:
 			raw := make([]byte, 1024)
@@ -223,25 +222,25 @@ type testConsumer struct {
 	n    int
 }
 
-func (dev *testConsumer) OnInit(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /init command... (%v)", dev.name)
+func (dev *testConsumer) OnInit(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
 	dev.n = 0
 	return nil
 }
 
-func (dev *testConsumer) OnReset(ctx context.Context, resp *Frame, req Frame) error {
-	log.Debugf("received /reset command... (%v)", dev.name)
+func (dev *testConsumer) OnReset(ctx Context, resp *Frame, req Frame) error {
+	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
 	dev.n = 0
 	return nil
 }
 
-func (dev *testConsumer) OnStop(ctx context.Context, resp *Frame, req Frame) error {
+func (dev *testConsumer) OnStop(ctx Context, resp *Frame, req Frame) error {
 	n := dev.n
-	log.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
 	return nil
 }
 
-func (dev *testConsumer) adc(ctx context.Context, src Frame) error {
+func (dev *testConsumer) adc(ctx Context, src Frame) error {
 	dev.n++
 	return nil
 }

@@ -6,21 +6,19 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"bytes"
-	"context"
 	"net"
 	"sort"
 	"sync"
 
 	"github.com/go-daq/tdaq/fsm"
-	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
-type RunHandler func(ctx context.Context) error
-type CmdHandler func(ctx context.Context, resp *Frame, req Frame) error
-type InputHandler func(ctx context.Context, src Frame) error
-type OutputHandler func(ctx context.Context, dst *Frame) error
+type RunHandler func(ctx Context) error
+type CmdHandler func(ctx Context, resp *Frame, req Frame) error
+type InputHandler func(ctx Context, src Frame) error
+type OutputHandler func(ctx Context, dst *Frame) error
 
 type imgr struct {
 	srv *Server
@@ -66,7 +64,7 @@ func (mgr *imgr) endpoints() []EndPoint {
 	return ps
 }
 
-func (mgr *imgr) onConfig(ctx context.Context, src Frame) error {
+func (mgr *imgr) onConfig(ctx Context, src Frame) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -97,7 +95,7 @@ func (mgr *imgr) dial(ep EndPoint) error {
 	return nil
 }
 
-func (mgr *imgr) onReset(ctx context.Context) error {
+func (mgr *imgr) onReset(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -111,7 +109,7 @@ func (mgr *imgr) onReset(ctx context.Context) error {
 		e := conn.Close()
 		if e != nil {
 			err = e
-			log.Errorf("could not close incoming end-point %q: %v", k, err)
+			ctx.Msg.Errorf("could not close incoming end-point %q: %v", k, err)
 			continue
 		}
 	}
@@ -119,7 +117,7 @@ func (mgr *imgr) onReset(ctx context.Context) error {
 	return err
 }
 
-func (mgr *imgr) onStart(ctx context.Context) error {
+func (mgr *imgr) onStart(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -139,7 +137,7 @@ func (mgr *imgr) onStart(ctx context.Context) error {
 	return nil
 }
 
-func (mgr *imgr) onStop(ctx context.Context) error {
+func (mgr *imgr) onStop(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -147,29 +145,29 @@ func (mgr *imgr) onStop(ctx context.Context) error {
 	case <-mgr.done:
 		return nil
 
-	case <-ctx.Done():
-		return xerrors.Errorf("on-stop failed: %w", ctx.Err())
+	case <-ctx.Ctx.Done():
+		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
 
 	return xerrors.Errorf("impossible")
 }
 
-func (mgr *imgr) run(ctx context.Context, ep string, conn net.Conn, f InputHandler) {
+func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) {
 	defer close(mgr.done)
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Ctx.Done():
 			return
 		default:
-			frame, err := RecvFrame(ctx, conn)
+			frame, err := RecvFrame(ctx.Ctx, conn)
 			switch {
 			default:
 				switch state := mgr.srv.getNextState(); state {
 				case fsm.Stopped:
 					// ok.
 				default:
-					log.Errorf("could not retrieve data frame for %q (state=%v): %+v", ep, state, err)
+					ctx.Msg.Errorf("could not retrieve data frame for %q (state=%v): %+v", ep, state, err)
 				}
 				return
 			case err == nil:
@@ -180,7 +178,7 @@ func (mgr *imgr) run(ctx context.Context, ep string, conn net.Conn, f InputHandl
 
 				err = f(ctx, frame)
 				if err != nil {
-					log.Errorf("could not process data frame for %q: %v", ep, err)
+					ctx.Msg.Errorf("could not process data frame for %q: %v", ep, err)
 				}
 			}
 		}
@@ -254,7 +252,7 @@ func (mgr *omgr) endpoints() []EndPoint {
 	return eps
 }
 
-func (mgr *omgr) onReset(ctx context.Context) error {
+func (mgr *omgr) onReset(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -264,14 +262,14 @@ func (mgr *omgr) onReset(ctx context.Context) error {
 		e := op.onReset()
 		if e != nil {
 			err = e
-			log.Errorf("could not /reset outgoing end-point %q: %v", k, err)
+			ctx.Msg.Errorf("could not /reset outgoing end-point %q: %v", k, err)
 		}
 	}
 
 	return err
 }
 
-func (mgr *omgr) onStart(ctx context.Context) error {
+func (mgr *omgr) onStart(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -291,44 +289,44 @@ func (mgr *omgr) onStart(ctx context.Context) error {
 	return nil
 }
 
-func (mgr *omgr) onStop(ctx context.Context) error {
+func (mgr *omgr) onStop(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
 	select {
 	case <-mgr.done:
 		return nil
-	case <-ctx.Done():
-		return xerrors.Errorf("on-stop failed: %w", ctx.Err())
+	case <-ctx.Ctx.Done():
+		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
 
 	return xerrors.Errorf("impossible")
 }
 
-func (mgr *omgr) run(ctx context.Context, ep string, op *oport, f OutputHandler) {
+func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 	defer close(mgr.done)
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Ctx.Done():
 			// send downstream clients the eof-frame poison pill
 			err := op.send(eofFrame)
 			if err != nil {
-				log.Errorf("could not send eof-frame for %q (state=%v->%v): %+v", ep, mgr.srv.getCurState(), mgr.srv.getNextState(), err)
+				ctx.Msg.Errorf("could not send eof-frame for %q (state=%v->%v): %+v", ep, mgr.srv.getCurState(), mgr.srv.getNextState(), err)
 			}
 			return
 		default:
 			var resp Frame
 			err := f(ctx, &resp)
 			if err != nil {
-				log.Errorf("could not process data frame for %q: %+v", ep, err)
+				ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
 				continue
 			}
 
 			buf := new(bytes.Buffer)
-			err = SendFrame(ctx, buf, resp)
+			err = SendFrame(ctx.Ctx, buf, resp)
 			if err != nil {
-				log.Errorf("could not serialize data frame for %q: %+v", ep, err)
+				ctx.Msg.Errorf("could not serialize data frame for %q: %+v", ep, err)
 				continue
 			}
 
@@ -338,7 +336,7 @@ func (mgr *omgr) run(ctx context.Context, ep string, op *oport, f OutputHandler)
 				case fsm.Stopped:
 					// ok
 				default:
-					log.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
+					ctx.Msg.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
 				}
 				if err, ok := err.(net.Error); ok && !err.Temporary() {
 					return
@@ -397,12 +395,12 @@ func (mgr *cmdmgr) init() {
 		if ok {
 			continue
 		}
-		hdlr := func(ctx context.Context, resp *Frame, req Frame) error {
+		hdlr := func(ctx Context, resp *Frame, req Frame) error {
 			cmd, err := CmdFrom(req)
 			if err != nil {
 				return err
 			}
-			log.Debugf("received cmd %v", cmd.Type)
+			ctx.Msg.Debugf("received cmd %v", cmd.Type)
 			return nil
 		}
 		mgr.ep[name] = hdlr
@@ -428,7 +426,7 @@ func (o *oport) accept() {
 	for {
 		conn, err := o.l.Accept()
 		if err != nil {
-			log.Errorf("could not accept conn for end-point %q: %v", o.name, err)
+			o.srv.msg.Errorf("could not accept conn for end-point %q: %v", o.name, err)
 			if err.(net.Error).Temporary() {
 				continue
 			}

@@ -100,6 +100,13 @@ func Errorf(format string, a ...interface{}) (int, error) {
 	return Default.Errorf(format, a...)
 }
 
+// Fatalf displays a (formated) ERR message and stops the program.
+func Fatalf(format string, a ...interface{}) (int, error) {
+	Default.Errorf(format, a...)
+	os.Exit(1)
+	panic("not reachable")
+}
+
 // Panicf displays a (formated) ERR message and panics.
 func Panicf(format string, a ...interface{}) (int, error) {
 	Default.Errorf(format, a...)

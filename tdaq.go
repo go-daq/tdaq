@@ -13,8 +13,14 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/go-daq/tdaq/log"
 	"golang.org/x/xerrors"
 )
+
+type Context struct {
+	Ctx context.Context
+	Msg log.MsgStream
+}
 
 type Marshaler interface {
 	MarshalTDAQ() ([]byte, error)

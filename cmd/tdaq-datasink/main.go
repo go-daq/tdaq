@@ -39,41 +39,41 @@ type device struct {
 	n int
 }
 
-func (dev *device) OnConfig(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /config command... (%v)", dev.name)
+func (dev *device) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *device) OnInit(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /init command... (%v)", dev.name)
+func (dev *device) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
 	dev.n = 0
 	return nil
 }
 
-func (dev *device) OnReset(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /reset command... (%v)", dev.name)
+func (dev *device) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
 	dev.n = 0
 	return nil
 }
 
-func (dev *device) OnStart(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received /start command... (%v)", dev.name)
+func (dev *device) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
 	return nil
 }
 
-func (dev *device) OnStop(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+func (dev *device) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
-	log.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
 	return nil
 }
 
-func (dev *device) OnTerminate(ctx context.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	log.Debugf("received %q command... (%v)", req.Path, dev.name)
+func (dev *device) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
 	return nil
 }
 
-func (dev *device) adc(ctx context.Context, src tdaq.Frame) error {
-	//log.Infof("received: %q (%d) -> %v", src.Body[:16], len(src.Body), dev.n)
+func (dev *device) adc(ctx tdaq.Context, src tdaq.Frame) error {
+	//ctx.Msg.Infof("received: %q (%d) -> %v", src.Body[:16], len(src.Body), dev.n)
 	dev.n++
 	return nil
 }
