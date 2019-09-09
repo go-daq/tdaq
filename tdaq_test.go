@@ -5,16 +5,36 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
+	"bytes"
 	"context"
 	"math/rand"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
+
+type mtbuf struct {
+	mu  sync.Mutex
+	buf *bytes.Buffer
+}
+
+func (b *mtbuf) Sync() error { return nil }
+func (b *mtbuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+func (b *mtbuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestRunControl(t *testing.T) {
 	port, err := getTCPPort()
@@ -27,6 +47,9 @@ func TestRunControl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
+
+	stdout := &mtbuf{buf: new(bytes.Buffer)}
+	rc.msg = log.NewMsgStream("run-ctl", log.LvlInfo, stdout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
@@ -82,6 +105,7 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
+			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
 			rc.mu.RLock()
@@ -111,6 +135,7 @@ loop:
 	} {
 		err := tt.fct(ctx)
 		if err != nil {
+			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("could not run %v: %+v", tt.name, err)
 		}
 		time.Sleep(tt.dt)
@@ -118,11 +143,13 @@ loop:
 
 	err = grp.Wait()
 	if err != nil {
+		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("could not run device run-group: %+v", err)
 	}
 
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
+		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 }
