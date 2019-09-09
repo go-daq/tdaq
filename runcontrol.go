@@ -7,6 +7,7 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -30,6 +31,9 @@ type RunControl struct {
 
 	srv net.Listener
 
+	stdin  io.Reader
+	stdout io.Writer
+
 	mu        sync.RWMutex
 	msg       log.MsgStream
 	conns     map[net.Conn]descr
@@ -38,10 +42,25 @@ type RunControl struct {
 	runNbr uint64
 }
 
-func NewRunControl(addr string) (*RunControl, error) {
+func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl, error) {
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	var out log.WriteSyncer
+	switch stdout := stdout.(type) {
+	case log.WriteSyncer:
+		out = stdout
+	default:
+		out = newSyncWriter(stdout)
+	}
 	rc := &RunControl{
 		quit:      make(chan struct{}),
-		msg:       log.NewMsgStream("run-ctl", log.LvlInfo, os.Stdout),
+		stdin:     stdin,
+		stdout:    stdout,
+		msg:       log.NewMsgStream("run-ctl", log.LvlInfo, out),
 		conns:     make(map[net.Conn]descr),
 		listening: true,
 		runNbr:    uint64(time.Now().UTC().Unix()),

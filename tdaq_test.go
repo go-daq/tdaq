@@ -7,14 +7,15 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -43,13 +44,12 @@ func TestRunControl(t *testing.T) {
 	}
 
 	addr := ":" + port
-	rc, err := NewRunControl(addr)
+	stdout := &mtbuf{buf: new(bytes.Buffer)}
+
+	rc, err := NewRunControl(addr, os.Stdin, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
-
-	stdout := &mtbuf{buf: new(bytes.Buffer)}
-	rc.msg = log.NewMsgStream("run-ctl", log.LvlInfo, stdout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
@@ -63,11 +63,10 @@ func TestRunControl(t *testing.T) {
 
 	grp.Go(func() error {
 		dev := testProducer{
-			name: "data-src",
 			seed: 1234,
 		}
 
-		srv := New(addr, dev.name)
+		srv := New(addr, "data-src")
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -83,21 +82,22 @@ func TestRunControl(t *testing.T) {
 		return err
 	})
 
-	grp.Go(func() error {
-		dev := testConsumer{
-			name: "data-sink",
-		}
+	for _, i := range []int{1, 2, 3} {
+		name := fmt.Sprintf("data-sink-%d", i)
+		grp.Go(func() error {
+			dev := testConsumer{}
 
-		srv := New(addr, dev.name)
-		srv.CmdHandle("/init", dev.OnInit)
-		srv.CmdHandle("/reset", dev.OnReset)
-		srv.CmdHandle("/stop", dev.OnStop)
+			srv := New(addr, name)
+			srv.CmdHandle("/init", dev.OnInit)
+			srv.CmdHandle("/reset", dev.OnReset)
+			srv.CmdHandle("/stop", dev.OnStop)
 
-		srv.InputHandle("/adc", dev.adc)
+			srv.InputHandle("/adc", dev.adc)
 
-		err := srv.Run(context.Background())
-		return err
-	})
+			err := srv.Run(context.Background())
+			return err
+		})
+	}
 
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
@@ -111,7 +111,7 @@ loop:
 			rc.mu.RLock()
 			n := len(rc.conns)
 			rc.mu.RUnlock()
-			if n == 2 {
+			if n == 4 {
 				break loop
 			}
 		}
@@ -168,8 +168,6 @@ func getTCPPort() (string, error) {
 }
 
 type testProducer struct {
-	name string
-
 	seed int64
 	rnd  *rand.Rand
 
@@ -178,12 +176,12 @@ type testProducer struct {
 }
 
 func (dev *testProducer) OnConfig(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /config command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /config command...")
 	return nil
 }
 
 func (dev *testProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /init command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
@@ -191,7 +189,7 @@ func (dev *testProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
 }
 
 func (dev *testProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /reset command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
 	dev.n = 0
@@ -199,18 +197,18 @@ func (dev *testProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
 }
 
 func (dev *testProducer) OnStart(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /start command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /start command...")
 	return nil
 }
 
 func (dev *testProducer) OnStop(ctx Context, resp *Frame, req Frame) error {
 	n := dev.n
-	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 
 func (dev *testProducer) OnTerminate(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received %q command... (%v)", req.Path, dev.name)
+	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }
 
@@ -245,25 +243,24 @@ func (dev *testProducer) run(ctx Context) error {
 }
 
 type testConsumer struct {
-	name string
-	n    int
+	n int
 }
 
 func (dev *testConsumer) OnInit(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /init command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /init command...")
 	dev.n = 0
 	return nil
 }
 
 func (dev *testConsumer) OnReset(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /reset command... (%v)", dev.name)
+	ctx.Msg.Debugf("received /reset command...")
 	dev.n = 0
 	return nil
 }
 
 func (dev *testConsumer) OnStop(ctx Context, resp *Frame, req Frame) error {
 	n := dev.n
-	ctx.Msg.Debugf("received /stop command... (%v) -> n=%d", dev.name, n)
+	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 

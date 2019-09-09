@@ -20,7 +20,7 @@ func main() {
 
 	flag.Parse()
 
-	rc, err := tdaq.NewRunControl(*addr)
+	rc, err := tdaq.NewRunControl(*addr, os.Stdin, os.Stdout)
 	if err != nil {
 		log.Errorf("could not create run control: %v", err)
 		os.Exit(1)

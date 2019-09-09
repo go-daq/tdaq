@@ -5,7 +5,9 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"net"
 	"sort"
 	"sync"
@@ -486,3 +488,13 @@ func (o *oport) send(data []byte) error {
 	}
 	return grp.Wait()
 }
+
+type syncwriter struct {
+	*bufio.Writer
+}
+
+func newSyncWriter(w io.Writer) *syncwriter {
+	return &syncwriter{bufio.NewWriter(w)}
+}
+
+func (w *syncwriter) Sync() error { return w.Writer.Flush() }
