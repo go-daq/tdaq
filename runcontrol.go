@@ -75,70 +75,71 @@ func NewRunControl(addr string, stdin io.Reader, stdout io.Writer) (*RunControl,
 	return rc, nil
 }
 
-func (rctl *RunControl) Run(ctx context.Context) error {
-	defer rctl.stdout.Sync()
+func (rc *RunControl) Run(ctx context.Context) error {
+	defer rc.stdout.Sync()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go rctl.serve(ctx)
+	go rc.serve(ctx)
+	go rc.input(ctx, rc.stdin)
 	//	go rctl.cmdsLoop(ctx)
 	//	go rctl.run(ctx)
 
 	for {
 		select {
-		case <-rctl.quit:
+		case <-rc.quit:
 			return nil
 
 		case <-ctx.Done():
-			close(rctl.quit)
+			close(rc.quit)
 			return ctx.Err()
 		}
 	}
 	return nil
 }
 
-func (rctl *RunControl) serve(ctx context.Context) {
+func (rc *RunControl) serve(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	for {
 		select {
-		case <-rctl.quit:
+		case <-rc.quit:
 			return
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err != nil {
-				rctl.msg.Errorf("context errored during run-ctl serve: %v", err)
+				rc.msg.Errorf("context errored during run-ctl serve: %v", err)
 			}
 			return
 		default:
-			conn, err := rctl.srv.Accept()
+			conn, err := rc.srv.Accept()
 			if err != nil {
-				rctl.msg.Errorf("error accepting connection: %v", err)
+				rc.msg.Errorf("error accepting connection: %v", err)
 				continue
 			}
-			go rctl.handleConn(ctx, conn)
+			go rc.handleConn(ctx, conn)
 		}
 	}
 }
 
-func (rctl *RunControl) handleConn(ctx context.Context, conn net.Conn) {
+func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 	setupTCPConn(conn.(*net.TCPConn))
 
 	req, err := RecvFrame(ctx, conn)
 	if err != nil {
-		rctl.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
+		rc.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
 	cmd, err := CmdFrom(req)
 	if err != nil {
-		rctl.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
+		rc.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
 	if cmd.Type != CmdJoin {
-		rctl.msg.Errorf("received invalid cmd from conn %v: cmd=%v (want JOIN)", conn.RemoteAddr(), cmd.Type)
+		rc.msg.Errorf("received invalid cmd from conn %v: cmd=%v (want JOIN)", conn.RemoteAddr(), cmd.Type)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(fmt.Sprintf("invalid cmd %v, want JOIN", cmd.Type)))
 		return
 	}
@@ -146,21 +147,21 @@ func (rctl *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 	var join JoinCmd
 	err = join.UnmarshalTDAQ(cmd.Body)
 	if err != nil {
-		rctl.msg.Errorf("could not decode JOIN cmd payload: %v", err)
+		rc.msg.Errorf("could not decode JOIN cmd payload: %v", err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
 
-	rctl.msg.Infof("received JOIN from conn %v: %v", conn.RemoteAddr(), join)
+	rc.msg.Infof("received JOIN from conn %v: %v", conn.RemoteAddr(), join)
 
 	err = sendFrame(ctx, conn, FrameOK, nil, nil)
 	if err != nil {
-		rctl.msg.Errorf("could not send OK-frame to conn %v (%s): %v", conn.RemoteAddr(), join.Name, err)
+		rc.msg.Errorf("could not send OK-frame to conn %v (%s): %v", conn.RemoteAddr(), join.Name, err)
 		return
 	}
 
-	rctl.mu.Lock()
-	rctl.conns[conn] = descr{
+	rc.mu.Lock()
+	rc.conns[conn] = descr{
 		name: join.Name,
 		status: fsm.Status{
 			State: fsm.UnConf,
@@ -168,19 +169,19 @@ func (rctl *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 		ieps: join.InEndPoints,
 		oeps: join.OutEndPoints,
 	}
-	rctl.mu.Unlock()
+	rc.mu.Unlock()
 
 }
 
-func (rctl *RunControl) cmdsLoop(ctx context.Context) {
+func (rc *RunControl) cmdsLoop(ctx context.Context) {
 	panic("not implemented")
 }
 
-func (rctl *RunControl) run(ctx context.Context) {
+func (rc *RunControl) run(ctx context.Context) {
 	panic("not implemented")
 }
 
-func (rctl *RunControl) dbgloop(ctx context.Context) {
+func (rc *RunControl) dbgloop(ctx context.Context) {
 	time.Sleep(8 * time.Second)
 
 	for _, tt := range []struct {
@@ -188,69 +189,69 @@ func (rctl *RunControl) dbgloop(ctx context.Context) {
 		dt  time.Duration
 		f   func(context.Context) error
 	}{
-		{CmdConfig, 5 * time.Second, rctl.doConfig},
-		{CmdInit, 2 * time.Second, rctl.doInit},
-		{CmdReset, 2 * time.Second, rctl.doReset},
-		{CmdConfig, 2 * time.Second, rctl.doConfig},
-		{CmdInit, 2 * time.Second, rctl.doInit},
-		{CmdStart, 10 * time.Second, rctl.doStart},
-		{CmdStatus, 2 * time.Second, rctl.doStatus},
+		{CmdConfig, 5 * time.Second, rc.doConfig},
+		{CmdInit, 2 * time.Second, rc.doInit},
+		{CmdReset, 2 * time.Second, rc.doReset},
+		{CmdConfig, 2 * time.Second, rc.doConfig},
+		{CmdInit, 2 * time.Second, rc.doInit},
+		{CmdStart, 10 * time.Second, rc.doStart},
+		{CmdStatus, 2 * time.Second, rc.doStatus},
 		{CmdLog, 2 * time.Second, nil},
-		{CmdStop, 2 * time.Second, rctl.doStop},
-		{CmdStart, 10 * time.Second, rctl.doStart},
-		{CmdStop, 2 * time.Second, rctl.doStop},
-		{CmdTerm, 2 * time.Second, rctl.doTerm},
+		{CmdStop, 2 * time.Second, rc.doStop},
+		{CmdStart, 10 * time.Second, rc.doStart},
+		{CmdStop, 2 * time.Second, rc.doStop},
+		{CmdTerm, 2 * time.Second, rc.doTerm},
 	} {
-		rctl.msg.Debugf("--- cmd %v...", tt.cmd)
+		rc.msg.Debugf("--- cmd %v...", tt.cmd)
 		if tt.f != nil {
 			err := tt.f(ctx)
 			if err != nil {
-				rctl.msg.Errorf("--- cmd %v failed: %v", tt.cmd, err)
+				rc.msg.Errorf("--- cmd %v failed: %v", tt.cmd, err)
 				continue
 			}
 		}
 		switch tt.cmd {
 		case CmdLog:
-			rctl.broadcast(ctx, tt.cmd)
+			rc.broadcast(ctx, tt.cmd)
 		}
-		rctl.msg.Debugf("--- cmd %v... [done]", tt.cmd)
+		rc.msg.Debugf("--- cmd %v... [done]", tt.cmd)
 		time.Sleep(tt.dt)
 	}
 
-	close(rctl.quit)
+	close(rc.quit)
 }
 
-func (rctl *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
-	rctl.mu.RLock()
-	defer rctl.mu.RUnlock()
+func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
 
 	var berr []error
 
-	for conn, descr := range rctl.conns {
-		rctl.msg.Debugf("proc %q...", descr.name)
-		rctl.msg.Debugf("sending cmd %v...", cmd)
+	for conn, descr := range rc.conns {
+		rc.msg.Debugf("proc %q...", descr.name)
+		rc.msg.Debugf("sending cmd %v...", cmd)
 		err := sendCmd(ctx, conn, cmd, nil)
 		if err != nil {
-			rctl.msg.Errorf("could not send cmd %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
+			rc.msg.Errorf("could not send cmd %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
 			berr = append(berr, err)
 			continue
 		}
-		rctl.msg.Debugf("sending cmd %v... [ok]", cmd)
-		rctl.msg.Debugf("receiving ACK...")
+		rc.msg.Debugf("sending cmd %v... [ok]", cmd)
+		rc.msg.Debugf("receiving ACK...")
 		ack, err := RecvFrame(ctx, conn)
 		if err != nil {
-			rctl.msg.Errorf("could not receive ACK: %v", err)
+			rc.msg.Errorf("could not receive ACK: %v", err)
 			berr = append(berr, err)
 			continue
 		}
 		switch ack.Type {
 		case FrameOK:
-			rctl.msg.Debugf("receiving ACK... [ok]")
+			rc.msg.Debugf("receiving ACK... [ok]")
 		case FrameErr:
-			rctl.msg.Errorf("received ERR ACK: %v", string(ack.Body))
+			rc.msg.Errorf("received ERR ACK: %v", string(ack.Body))
 			berr = append(berr, xerrors.Errorf(string(ack.Body)))
 		default:
-			rctl.msg.Errorf("received invalid frame type %v", ack.Type)
+			rc.msg.Errorf("received invalid frame type %v", ack.Type)
 			berr = append(berr, xerrors.Errorf("received invalid frame type %v", ack.Type))
 		}
 	}
