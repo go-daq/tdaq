@@ -12,30 +12,12 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
-
-type mtbuf struct {
-	mu  sync.Mutex
-	buf *bytes.Buffer
-}
-
-func (b *mtbuf) Sync() error { return nil }
-func (b *mtbuf) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-func (b *mtbuf) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
 
 func TestRunControl(t *testing.T) {
 	port, err := getTCPPort()
@@ -44,7 +26,7 @@ func TestRunControl(t *testing.T) {
 	}
 
 	addr := ":" + port
-	stdout := &mtbuf{buf: new(bytes.Buffer)}
+	stdout := new(bytes.Buffer)
 
 	rc, err := NewRunControl(addr, os.Stdin, stdout)
 	if err != nil {
