@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -30,6 +30,7 @@ func TestRunControl(t *testing.T) {
 	}
 
 	addr := ":" + port
+	stdin, cmd := io.Pipe()
 	stdout := new(bytes.Buffer)
 
 	cfg := config.Process{
@@ -38,7 +39,7 @@ func TestRunControl(t *testing.T) {
 		RunCtl: addr,
 	}
 
-	rc, err := NewRunControl(cfg, os.Stdin, stdout)
+	rc, err := NewRunControl(cfg, stdin, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
@@ -121,21 +122,21 @@ loop:
 
 	for _, tt := range []struct {
 		name string
-		fct  func(context.Context) error
+		cmd  byte
 		dt   time.Duration
 	}{
-		{"config", rc.doConfig, 20 * time.Millisecond},
-		{"init", rc.doInit, 20 * time.Millisecond},
-		{"reset", rc.doReset, 10 * time.Millisecond},
-		{"config", rc.doConfig, 20 * time.Millisecond},
-		{"init", rc.doInit, 20 * time.Millisecond},
-		{"start", rc.doStart, 2 * time.Second},
-		{"stop", rc.doStop, 10 * time.Millisecond},
-		{"start", rc.doStart, 2 * time.Second},
-		{"stop", rc.doStop, 10 * time.Millisecond},
-		{"term", rc.doTerm, 1 * time.Second},
+		{"config", 'c', 20 * time.Millisecond},
+		{"init", 'i', 20 * time.Millisecond},
+		{"reset", 'x', 10 * time.Millisecond},
+		{"config", 'c', 20 * time.Millisecond},
+		{"init", 'i', 20 * time.Millisecond},
+		{"start", 'r', 2 * time.Second},
+		{"stop", 's', 10 * time.Millisecond},
+		{"start", 'r', 2 * time.Second},
+		{"stop", 's', 10 * time.Millisecond},
+		{"term", 'q', 1 * time.Second},
 	} {
-		err := tt.fct(ctx)
+		_, err := cmd.Write([]byte{tt.cmd, '\n'})
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("could not run %v: %+v", tt.name, err)
