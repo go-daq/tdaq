@@ -163,7 +163,7 @@ func (msg msgstream) Msg(lvl Level, format string, a ...interface{}) (int, error
 	if !strings.HasSuffix(format, "\n") {
 		eol = "\n"
 	}
-	format = msg.n + msg.lvl.msgstring() + " " + format + eol
+	format = msg.n + lvl.msgstring() + " " + format + eol
 	return fmt.Fprintf(msg.w, format, a...)
 }
 
