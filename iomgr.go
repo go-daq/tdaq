@@ -398,11 +398,7 @@ func (mgr *cmdmgr) init() {
 			continue
 		}
 		hdlr := func(ctx Context, resp *Frame, req Frame) error {
-			cmd, err := CmdFrom(req)
-			if err != nil {
-				return err
-			}
-			ctx.Msg.Debugf("received cmd %v", cmd.Type)
+			ctx.Msg.Debugf("received %s cmd", req.Path)
 			return nil
 		}
 		mgr.ep[name] = hdlr

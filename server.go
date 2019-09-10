@@ -53,7 +53,9 @@ func New(cfg config.Process) *Server {
 			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",
 			"/term",
-			"/status", "/log",
+
+			"/status",
+			"/log",
 		),
 
 		quit: make(chan struct{}),
@@ -221,7 +223,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 					}
 					return
 				}
-				log.Warnf("could not receive cmds from run-ctl: %+v", err)
+				srv.msg.Warnf("could not receive cmds from run-ctl: %+v", err)
 				continue
 			}
 
@@ -241,13 +243,13 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	h, ok := srv.cmgr.endpoint(name)
 	if !ok {
-		log.Warnf("invalid request path %q", name)
+		srv.msg.Warnf("invalid request path %q", name)
 		resp.Type = FrameErr
 		resp.Body = []byte(xerrors.Errorf("invalid request path %q", name).Error())
 
 		err = SendFrame(ctx, w, resp)
 		if err != nil {
-			log.Warnf("could not send ack cmd: %v", err)
+			srv.msg.Warnf("could not send ack cmd: %v", err)
 		}
 	}
 
@@ -289,7 +291,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 		next = srv.getCurState()
 
 	default:
-		log.Errorf("invalid cmd %q", name)
+		srv.msg.Errorf("invalid cmd %q", name)
 	}
 
 	srv.setNextState(next)
@@ -297,7 +299,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	tctx := Context{Ctx: ctx, Msg: srv.msg}
 	errPre := onCmd(tctx, req)
 	if errPre != nil {
-		log.Warnf("could not run %v pre-handler: %v", name, errPre)
+		srv.msg.Warnf("could not run %v pre-handler: %v", name, errPre)
 		resp.Type = FrameErr
 		resp.Body = []byte(errPre.Error())
 		next = fsm.Error
@@ -305,7 +307,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	errH := h(tctx, &resp, req)
 	if errH != nil {
-		log.Warnf("could not run %v handler: %v", name, errH)
+		srv.msg.Warnf("could not run %v handler: %v", name, errH)
 		resp.Type = FrameErr
 		resp.Body = []byte(errH.Error())
 		next = fsm.Error
@@ -313,9 +315,14 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	srv.setCurState(next)
 
-	err = SendFrame(ctx, w, resp)
-	if err != nil {
-		log.Warnf("could not send ack cmd: %v", err)
+	switch name {
+	case "/status":
+		// ok. reply already sent.
+	default:
+		err = SendFrame(ctx, w, resp)
+		if err != nil {
+			srv.msg.Warnf("could not send ack cmd: %v", err)
+		}
 	}
 }
 
@@ -445,8 +452,19 @@ func (srv *Server) onTerm(ctx Context, req Frame) error {
 }
 
 func (srv *Server) onStatus(ctx Context, req Frame) error {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+
+	state := srv.state.cur
+	cmd := StatusCmd{
+		Name:   srv.name,
+		Status: state,
+	}
+
+	err := SendCmd(ctx.Ctx, srv.rctl, &cmd)
+	if err != nil {
+		return xerrors.Errorf("could not send /status reply: %w", err)
+	}
 
 	return nil
 }

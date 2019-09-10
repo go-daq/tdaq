@@ -446,7 +446,59 @@ func (rc *RunControl) doTerm(ctx context.Context) error {
 
 func (rc *RunControl) doStatus(ctx context.Context) error {
 	rc.msg.Infof("/status processes...")
-	return rc.broadcast(ctx, CmdStatus)
+
+	rc.mu.RLock()
+	conns := make([]net.Conn, 0, len(rc.conns))
+	for conn := range rc.conns {
+		conns = append(conns, conn)
+	}
+	rc.mu.RUnlock()
+
+	var grp errgroup.Group
+	for i := range conns {
+		conn := conns[i]
+		descr := rc.conns[conn]
+		cmd := StatusCmd{Name: descr.name}
+		grp.Go(func() error {
+			err := SendCmd(ctx, conn, &cmd)
+			if err != nil {
+				rc.msg.Errorf("could not send %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
+				return err
+			}
+
+			ack, err := RecvFrame(ctx, conn)
+			if err != nil {
+				rc.msg.Errorf("could not receive ACK: %v", err)
+				return err
+			}
+			switch ack.Type {
+			case FrameCmd:
+				cmd, err := newStatusCmd(ack)
+				if err != nil {
+					rc.msg.Errorf("could not receive /status reply for %q: %+v", descr.name, err)
+					return xerrors.Errorf("could not receive /status reply for %q: %w", err)
+				}
+				rc.mu.Lock()
+				descr := rc.conns[conn]
+				descr.status.State = cmd.Status
+				rc.conns[conn] = descr
+				rc.mu.Unlock()
+				rc.msg.Infof("received /status = %v for %q", cmd.Status, descr.name)
+
+			default:
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				return xerrors.Errorf("received invalid frame type %v", ack.Type)
+			}
+			return nil
+		})
+	}
+
+	err := grp.Wait()
+	if err != nil {
+		return xerrors.Errorf("failed to run /status errgroup: %w", err)
+	}
+
+	return nil
 }
 
 func (rc *RunControl) providerOf(p EndPoint) (string, bool) {

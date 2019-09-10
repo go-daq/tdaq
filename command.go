@@ -11,6 +11,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/go-daq/tdaq/fsm"
 	"golang.org/x/xerrors"
 )
 
@@ -251,6 +252,47 @@ func (cmd *ConfigCmd) UnmarshalTDAQ(p []byte) error {
 	return dec.err
 }
 
+type StatusCmd struct {
+	Name   string
+	Status fsm.StateKind
+}
+
+func newStatusCmd(frame Frame) (StatusCmd, error) {
+	var (
+		cmd StatusCmd
+		err error
+	)
+
+	raw, err := CmdFrom(frame)
+	if err != nil {
+		return cmd, xerrors.Errorf("not a /status cmd: %w", err)
+	}
+
+	if raw.Type != CmdStatus {
+		return cmd, xerrors.Errorf("not a /status cmd")
+	}
+
+	err = cmd.UnmarshalTDAQ(raw.Body)
+	return cmd, err
+}
+
+func (cmd StatusCmd) CmdType() CmdType { return CmdStatus }
+
+func (cmd StatusCmd) MarshalTDAQ() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf)
+	enc.WriteStr(cmd.Name)
+	enc.WriteU8(uint8(cmd.Status))
+	return buf.Bytes(), enc.err
+}
+
+func (cmd *StatusCmd) UnmarshalTDAQ(p []byte) error {
+	dec := NewDecoder(bytes.NewReader(p))
+	cmd.Name = dec.ReadStr()
+	cmd.Status = fsm.StateKind(dec.ReadU8())
+	return dec.err
+}
+
 var (
 	_ Cmder       = (*JoinCmd)(nil)
 	_ Marshaler   = (*JoinCmd)(nil)
@@ -259,4 +301,8 @@ var (
 	_ Cmder       = (*ConfigCmd)(nil)
 	_ Marshaler   = (*ConfigCmd)(nil)
 	_ Unmarshaler = (*ConfigCmd)(nil)
+
+	_ Cmder       = (*StatusCmd)(nil)
+	_ Marshaler   = (*StatusCmd)(nil)
+	_ Unmarshaler = (*StatusCmd)(nil)
 )
