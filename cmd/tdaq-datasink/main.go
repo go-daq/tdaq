@@ -71,7 +71,14 @@ func (dev *device) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Fram
 }
 
 func (dev *device) adc(ctx tdaq.Context, src tdaq.Frame) error {
-	//ctx.Msg.Infof("received: %q (%d) -> %v", src.Body[:16], len(src.Body), dev.n)
+	ctx.Msg.Debugf("received: %q (%d) -> %v", src.Body[:imin(len(src.Body), 16)], len(src.Body), dev.n)
 	dev.n++
 	return nil
+}
+
+func imin(i, j int) int {
+	if i < j {
+		return i
+	}
+	return j
 }
