@@ -334,7 +334,7 @@ func (srv *Server) onConfig(ctx Context, req Frame) error {
 	case fsm.UnConf, fsm.Conf, fsm.Error:
 		// ok
 	default:
-		return xerrors.Errorf("invalid state transition %v -> configured", srv.state.cur)
+		return xerrors.Errorf("%s: invalid state transition %v -> configured", srv.name, srv.state.cur)
 	}
 
 	ierr := srv.imgr.onConfig(ctx, req)
@@ -353,7 +353,7 @@ func (srv *Server) onInit(ctx Context, req Frame) error {
 	case fsm.Conf:
 		// ok
 	default:
-		return xerrors.Errorf("invalid state transition %v -> initialized", srv.state.cur)
+		return xerrors.Errorf("%s: invalid state transition %v -> initialized", srv.name, srv.state.cur)
 	}
 
 	return nil
@@ -367,7 +367,7 @@ func (srv *Server) onReset(ctx Context, req Frame) error {
 	case fsm.UnConf, fsm.Conf, fsm.Init, fsm.Stopped, fsm.Error:
 		// ok
 	default:
-		return xerrors.Errorf("invalid state transition %v -> reset", srv.state.cur)
+		return xerrors.Errorf("%s: invalid state transition %v -> reset", srv.name, srv.state.cur)
 	}
 
 	ierr := srv.imgr.onReset(ctx)
@@ -391,7 +391,7 @@ func (srv *Server) onStart(runctx Context, req Frame) error {
 	case fsm.Init, fsm.Stopped:
 		// ok
 	default:
-		return xerrors.Errorf("invalid state transition %v -> started", srv.state.cur)
+		return xerrors.Errorf("%s: invalid state transition %v -> started", srv.name, srv.state.cur)
 	}
 
 	for i := range srv.runfcts {
@@ -422,7 +422,7 @@ func (srv *Server) onStop(ctx Context, req Frame) error {
 	case fsm.Running:
 		// ok
 	default:
-		return xerrors.Errorf("invalid state transition %v -> stopped", srv.state.cur)
+		return xerrors.Errorf("%s: invalid state transition %v -> stopped", srv.name, srv.state.cur)
 	}
 
 	srv.rundone()
@@ -463,7 +463,7 @@ func (srv *Server) onStatus(ctx Context, req Frame) error {
 
 	err := SendCmd(ctx.Ctx, srv.rctl, &cmd)
 	if err != nil {
-		return xerrors.Errorf("could not send /status reply: %w", err)
+		return xerrors.Errorf("%s: could not send /status reply: %w", srv.name, err)
 	}
 
 	return nil
