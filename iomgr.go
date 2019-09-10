@@ -490,11 +490,23 @@ func (o *oport) send(data []byte) error {
 }
 
 type syncwriter struct {
-	*bufio.Writer
+	mu sync.Mutex
+	w  *bufio.Writer
 }
 
 func newSyncWriter(w io.Writer) *syncwriter {
-	return &syncwriter{bufio.NewWriter(w)}
+	return &syncwriter{w: bufio.NewWriter(w)}
 }
 
-func (w *syncwriter) Sync() error { return w.Writer.Flush() }
+func (w *syncwriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	n, err := w.w.Write(p)
+	w.mu.Unlock()
+	return n, err
+}
+
+func (w *syncwriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Flush()
+}
