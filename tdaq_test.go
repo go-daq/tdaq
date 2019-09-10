@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -269,4 +271,35 @@ func (dev *testConsumer) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Fra
 func (dev *testConsumer) adc(ctx tdaq.Context, src tdaq.Frame) error {
 	dev.n++
 	return nil
+}
+
+func TestMsgFrame(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []tdaq.MsgFrame{
+		tdaq.MsgFrame{Name: "n1", Level: log.LvlDebug, Msg: strings.Repeat("0123456789", 80)},
+		tdaq.MsgFrame{Name: "n2", Level: log.LvlInfo, Msg: strings.Repeat("0123456789", 80)},
+		tdaq.MsgFrame{Name: "n3", Level: log.LvlWarning, Msg: strings.Repeat("0123456789", 80)},
+		tdaq.MsgFrame{Name: "n4", Level: log.LvlError, Msg: strings.Repeat("0123456789", 80)},
+	} {
+		t.Run(tt.Name, func(t *testing.T) {
+			buf := new(bytes.Buffer)
+			err := tdaq.SendMsg(ctx, buf, tt)
+			if err != nil {
+				t.Fatalf("could not send msg-frame: %+v", err)
+			}
+			frame, err := tdaq.RecvFrame(ctx, buf)
+			if err != nil {
+				t.Fatalf("could not recv msg-frame: %+v", err)
+			}
+			var got tdaq.MsgFrame
+			err = got.UnmarshalTDAQ(frame.Body)
+			if err != nil {
+				t.Fatalf("could not unmarshal msg-frame: %+v", err)
+			}
+
+			if got, want := got, tt; !reflect.DeepEqual(got, want) {
+				t.Fatalf("invalid r/w round-trip for msg-frame:\ngot = %#v\nwant= %#v\n", got, want)
+			}
+		})
+	}
 }

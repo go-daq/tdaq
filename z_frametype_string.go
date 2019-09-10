@@ -11,14 +11,15 @@ func _() {
 	_ = x[FrameUnknown-0]
 	_ = x[FrameCmd-1]
 	_ = x[FrameData-2]
-	_ = x[FrameOK-3]
-	_ = x[FrameEOF-4]
-	_ = x[FrameErr-5]
+	_ = x[FrameMsg-3]
+	_ = x[FrameOK-4]
+	_ = x[FrameEOF-5]
+	_ = x[FrameErr-6]
 }
 
-const _FrameType_name = "FrameUnknownFrameCmdFrameDataFrameOKFrameEOFFrameErr"
+const _FrameType_name = "FrameUnknownFrameCmdFrameDataFrameMsgFrameOKFrameEOFFrameErr"
 
-var _FrameType_index = [...]uint8{0, 12, 20, 29, 36, 44, 52}
+var _FrameType_index = [...]uint8{0, 12, 20, 29, 37, 44, 52, 60}
 
 func (i FrameType) String() string {
 	if i >= FrameType(len(_FrameType_index)-1) {

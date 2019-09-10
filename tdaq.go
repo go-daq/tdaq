@@ -43,6 +43,7 @@ const (
 	FrameUnknown FrameType = iota
 	FrameCmd
 	FrameData
+	FrameMsg
 	FrameOK
 	FrameEOF
 	FrameErr
@@ -63,6 +64,14 @@ func init() {
 
 func SendData(ctx context.Context, w io.Writer, path, data []byte) error {
 	return sendFrame(ctx, w, FrameData, path, data)
+}
+
+func SendMsg(ctx context.Context, w io.Writer, msg MsgFrame) error {
+	raw, err := msg.MarshalTDAQ()
+	if err != nil {
+		return err
+	}
+	return sendFrame(ctx, w, FrameMsg, []byte("/log"), raw)
 }
 
 func SendFrame(ctx context.Context, w io.Writer, frame Frame) error {
@@ -101,6 +110,30 @@ func RecvFrame(ctx context.Context, r io.Reader) (frame Frame, err error) {
 	return frame, nil
 }
 
+type MsgFrame struct {
+	Name  string
+	Level log.Level
+	Msg   string
+}
+
+func (frame MsgFrame) MarshalTDAQ() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf)
+	enc.WriteStr(frame.Name)
+	enc.WriteI8(int8(frame.Level))
+	enc.WriteStr(frame.Msg)
+	err := enc.Err()
+	return buf.Bytes(), err
+}
+
+func (frame *MsgFrame) UnmarshalTDAQ(p []byte) error {
+	dec := NewDecoder(bytes.NewReader(p))
+	frame.Name = dec.ReadStr()
+	frame.Level = log.Level(dec.ReadI8())
+	frame.Msg = dec.ReadStr()
+	return dec.Err()
+}
+
 type EndPoint struct {
 	Name string
 	Addr string
@@ -124,3 +157,8 @@ func (ep *EndPoint) UnmarshalTDAQ(b []byte) error {
 	ep.Type = dec.ReadStr()
 	return dec.err
 }
+
+var (
+	_ Marshaler   = (*MsgFrame)(nil)
+	_ Unmarshaler = (*MsgFrame)(nil)
+)
