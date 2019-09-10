@@ -7,8 +7,10 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -31,6 +33,7 @@ type RunControl struct {
 	quit chan struct{}
 
 	srv net.Listener
+	web *http.Server
 
 	stdout log.WriteSyncer
 
@@ -69,6 +72,16 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.srv = srv
 
+	if cfg.Web != "" {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", rc.webHome)
+		mux.HandleFunc("/cmd", rc.webCmd)
+		rc.web = &http.Server{
+			Addr:    cfg.Web,
+			Handler: mux,
+		}
+	}
+
 	return rc, nil
 }
 
@@ -87,6 +100,7 @@ func (rc *RunControl) Run(ctx context.Context) error {
 	defer cancel()
 
 	go rc.serve(ctx)
+	go rc.webServe(ctx)
 
 	var err error
 
@@ -130,6 +144,15 @@ func (rc *RunControl) close() {
 	if err != nil {
 		rc.msg.Errorf("could not close run-ctl cmd server: %+v", err)
 	}
+
+	if rc.web != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := rc.web.Shutdown(ctx)
+		if err != nil {
+			rc.msg.Errorf("could not close run-ctl web server: %+v", err)
+		}
+	}
 }
 
 func (rc *RunControl) serve(ctx context.Context) {
@@ -159,6 +182,29 @@ func (rc *RunControl) serve(ctx context.Context) {
 			}
 			go rc.handleConn(ctx, conn)
 		}
+	}
+}
+
+func (rc *RunControl) webServe(ctx context.Context) {
+	if rc.web == nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	rc.msg.Infof("starting web run-ctl server on %q...", rc.web.Addr)
+
+	err := rc.web.ListenAndServe()
+	if err != nil {
+		if xerrors.Is(err, http.ErrServerClosed) {
+			select {
+			case <-rc.quit:
+				// ok, we are shutting down.
+				return
+			default:
+			}
+		}
+		rc.msg.Errorf("error running run-ctl web server: %+v", err)
 	}
 }
 
@@ -413,3 +459,108 @@ func (rc *RunControl) providerOf(p EndPoint) (string, bool) {
 	}
 	return "", false
 }
+
+func (rc *RunControl) webHome(w http.ResponseWriter, r *http.Request) {
+	t, err := template.New("tdaq-home").Parse(webHomePage)
+	if err != nil {
+		rc.msg.Errorf("error parsing web home-page: %+v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		rc.msg.Errorf("error executing web home-page template: %+v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
+}
+
+const webHomePage = `<html>
+<head>
+    <title>TDAQ RunControl</title>
+
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="https://www.w3schools.com/w3css/3/w3.css">
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+
+	<style>
+	input[type=submit] {
+		background-color: #F44336;
+		padding:5px 15px;
+		border:0 none;
+		cursor:pointer;
+		-webkit-border-radius: 5px;
+		border-radius: 5px;
+	}
+	.flex-container {
+		display: -webkit-flex;
+		display: flex;
+	}
+	.flex-item {
+		margin: 5px;
+	}
+	.app-file-upload {
+		color: white;
+		background-color: #0091EA;
+		padding:5px 15px;
+		border:0 none;
+		cursor:pointer;
+		-webkit-border-radius: 5px;
+	}
+
+	.loader {
+		border: 16px solid #f3f3f3;
+		border-radius: 50%;
+		border-top: 16px solid #3498db;
+		width: 120px;
+		height: 120px;
+		-webkit-animation: spin 2s linear infinite; /* Safari */
+		animation: spin 2s linear infinite;
+	}
+
+	/* Safari */
+	@-webkit-keyframes spin {
+		0% { -webkit-transform: rotate(0deg); }
+		100% { -webkit-transform: rotate(360deg); }
+	}
+
+	@keyframes spin {
+		0% { transform: rotate(0deg); }
+		100% { transform: rotate(360deg); }
+	}
+	</style>
+
+<script type="text/javascript">
+	"use strict"
+</script>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="app-sidebar" class="w3-sidebar w3-bar-block w3-card-4 w3-light-grey" style="width:25%">
+	<div class="w3-bar-item w3-card-2 w3-black">
+		<h2>TDAQ RunControl</h2>
+	</div>
+	<div class="w3-bar-item">
+
+	<div>
+	</div>
+	<br>
+
+	</div>
+</div>
+
+<!-- Page Content -->
+<div style="margin-left:25%; height:100%" class="w3-grey" id="app-container">
+	<div class="w3-container w3-content w3-cell w3-cell-middle w3-cell-row w3-center w3-justify w3-grey" style="width:100%" id="app-display">
+	</div>
+</div>
+
+</body>
+</html>
+`
