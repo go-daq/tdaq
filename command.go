@@ -293,6 +293,47 @@ func (cmd *StatusCmd) UnmarshalTDAQ(p []byte) error {
 	return dec.err
 }
 
+type LogCmd struct {
+	Name string // name of the TDAQ process
+	Addr string // address of log server
+}
+
+func newLogCmd(frame Frame) (LogCmd, error) {
+	var (
+		cmd LogCmd
+		err error
+	)
+
+	raw, err := CmdFrom(frame)
+	if err != nil {
+		return cmd, xerrors.Errorf("not a /log cmd: %w", err)
+	}
+
+	if raw.Type != CmdLog {
+		return cmd, xerrors.Errorf("not a /log cmd")
+	}
+
+	err = cmd.UnmarshalTDAQ(raw.Body)
+	return cmd, err
+}
+
+func (cmd LogCmd) CmdType() CmdType { return CmdLog }
+
+func (cmd LogCmd) MarshalTDAQ() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf)
+	enc.WriteStr(cmd.Name)
+	enc.WriteStr(cmd.Addr)
+	return buf.Bytes(), enc.err
+}
+
+func (cmd *LogCmd) UnmarshalTDAQ(p []byte) error {
+	dec := NewDecoder(bytes.NewReader(p))
+	cmd.Name = dec.ReadStr()
+	cmd.Addr = dec.ReadStr()
+	return dec.err
+}
+
 var (
 	_ Cmder       = (*JoinCmd)(nil)
 	_ Marshaler   = (*JoinCmd)(nil)
@@ -305,4 +346,8 @@ var (
 	_ Cmder       = (*StatusCmd)(nil)
 	_ Marshaler   = (*StatusCmd)(nil)
 	_ Unmarshaler = (*StatusCmd)(nil)
+
+	_ Cmder       = (*LogCmd)(nil)
+	_ Marshaler   = (*LogCmd)(nil)
+	_ Unmarshaler = (*LogCmd)(nil)
 )
