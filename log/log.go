@@ -25,7 +25,7 @@ const (
 	LvlError   Level = 20  // LvlError defines the ERR verbosity level
 )
 
-func (lvl Level) msgstring() string {
+func (lvl Level) MsgString() string {
 	switch lvl {
 	case LvlDebug:
 		return "DBG "
@@ -62,6 +62,8 @@ type MsgStream interface {
 	Errorf(format string, a ...interface{}) (int, error)
 
 	Msg(lvl Level, format string, a ...interface{}) (int, error)
+
+	Sync() error
 }
 
 // WriteSyncer is an io.Writer which can be sync'ed/flushed.
@@ -163,10 +165,16 @@ func (msg msgstream) Msg(lvl Level, format string, a ...interface{}) (int, error
 	if !strings.HasSuffix(format, "\n") {
 		eol = "\n"
 	}
-	format = msg.n + lvl.msgstring() + " " + format + eol
+	format = msg.n + lvl.MsgString() + " " + format + eol
 	return fmt.Fprintf(msg.w, format, a...)
 }
+
+func (msg msgstream) Sync() error { return msg.flush() }
 
 func (msg msgstream) flush() error {
 	return msg.w.Sync()
 }
+
+var (
+	_ MsgStream = (*msgstream)(nil)
+)

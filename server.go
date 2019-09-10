@@ -475,3 +475,70 @@ func (srv *Server) onLog(ctx Context, req Frame) error {
 
 	return nil
 }
+
+type msgstream struct {
+	lvl  log.Level
+	w    log.WriteSyncer
+	conn net.Conn
+	n    string
+}
+
+func newMsgStream(name string, lvl log.Level, conn net.Conn, w log.WriteSyncer) log.MsgStream {
+	return &msgstream{
+		lvl:  lvl,
+		conn: conn,
+		w:    w,
+		n:    fmt.Sprintf("%-20s ", name),
+	}
+}
+
+// Debugf displays a (formated) DBG message
+func (msg msgstream) Debugf(format string, a ...interface{}) (int, error) {
+	return msg.Msg(log.LvlDebug, format, a...)
+}
+
+// Infof displays a (formated) INFO message
+func (msg msgstream) Infof(format string, a ...interface{}) (int, error) {
+	return msg.Msg(log.LvlInfo, format, a...)
+}
+
+// Warnf displays a (formated) WARN message
+func (msg msgstream) Warnf(format string, a ...interface{}) (int, error) {
+	defer msg.flush()
+	return msg.Msg(log.LvlWarning, format, a...)
+}
+
+// Errorf displays a (formated) ERR message
+func (msg msgstream) Errorf(format string, a ...interface{}) (int, error) {
+	defer msg.flush()
+	return msg.Msg(log.LvlError, format, a...)
+}
+
+// Msg displays a (formated) message with level lvl.
+func (msg msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, error) {
+	if lvl < msg.lvl {
+		return 0, nil
+	}
+	eol := ""
+	if !strings.HasSuffix(format, "\n") {
+		eol = "\n"
+	}
+	format = msg.n + lvl.MsgString() + " " + format + eol
+	str := []byte(fmt.Sprintf(format, a...))
+	go SendMsg(context.Background(), msg.conn, MsgFrame{
+		Name:  strings.TrimSpace(msg.n),
+		Level: lvl,
+		Msg:   string(str),
+	})
+	return msg.w.Write(str)
+}
+
+func (msg msgstream) Sync() error { return msg.flush() }
+
+func (msg msgstream) flush() error {
+	return msg.w.Sync()
+}
+
+var (
+	_ log.MsgStream = (*msgstream)(nil)
+)
