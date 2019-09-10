@@ -12,16 +12,19 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// Decoder decodes values from the underlying io.Reader, according to the TDAQ wire protocol.
 type Decoder struct {
 	r   io.Reader
 	err error
 	buf []byte
 }
 
+// NewDecoder creates a new decoder connected to the provided io.Reader.
 func NewDecoder(r io.Reader) *Decoder {
 	return &Decoder{r: r, buf: make([]byte, 8)}
 }
 
+// Decode decodes a value from the underlying io.Reader into the provided pointer.
 func (dec *Decoder) Decode(ptr interface{}) error {
 	if dec.err != nil {
 		return dec.err

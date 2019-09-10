@@ -12,6 +12,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// Encoder encodes values to the underlying io.Writer, according to the TDAQ wire protocol.
 type Encoder struct {
 	w   io.Writer
 	err error
@@ -19,12 +20,14 @@ type Encoder struct {
 	buf []byte
 }
 
+// NewEncoder creates a new encoder, connected to the provided io.Writer.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w, buf: make([]byte, 8)}
 }
 
 func (enc *Encoder) Err() error { return enc.err }
 
+// Encode encodes the provided value to the underlying io.Writer.
 func (enc *Encoder) Encode(v interface{}) error {
 	if enc.err != nil {
 		return enc.err
