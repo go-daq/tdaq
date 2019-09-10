@@ -32,7 +32,6 @@ type RunControl struct {
 
 	srv net.Listener
 
-	cmds   <-chan CmdType
 	stdout log.WriteSyncer
 
 	mu        sync.RWMutex
@@ -43,7 +42,7 @@ type RunControl struct {
 	runNbr uint64
 }
 
-func NewRunControl(cfg config.RunCtl, cmds <-chan CmdType, stdout io.Writer) (*RunControl, error) {
+func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
@@ -56,7 +55,6 @@ func NewRunControl(cfg config.RunCtl, cmds <-chan CmdType, stdout io.Writer) (*R
 	}
 	rc := &RunControl{
 		quit:      make(chan struct{}),
-		cmds:      cmds,
 		stdout:    out,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
 		conns:     make(map[net.Conn]descr),
@@ -74,6 +72,14 @@ func NewRunControl(cfg config.RunCtl, cmds <-chan CmdType, stdout io.Writer) (*R
 	return rc, nil
 }
 
+// NumClients returns the number of TDAQ processes connected to this run control.
+func (rc *RunControl) NumClients() int {
+	rc.mu.RLock()
+	n := len(rc.conns)
+	rc.mu.RUnlock()
+	return n
+}
+
 func (rc *RunControl) Run(ctx context.Context) error {
 	rc.msg.Infof("waiting for commands...")
 	defer rc.stdout.Sync()
@@ -81,19 +87,49 @@ func (rc *RunControl) Run(ctx context.Context) error {
 	defer cancel()
 
 	go rc.serve(ctx)
-	go rc.input(ctx)
 
+	var err error
+
+loop:
 	for {
 		select {
 		case <-rc.quit:
-			return nil
+			rc.msg.Infof("shutting down...")
+			break loop
 
 		case <-ctx.Done():
+			rc.msg.Infof("context done: shutting down...")
 			close(rc.quit)
-			return ctx.Err()
+			err = ctx.Err()
+			break loop
 		}
 	}
-	return nil
+
+	if err != nil {
+		rc.msg.Errorf("could not serve run-ctl commands: %+v", err)
+	}
+
+	rc.close()
+
+	return err
+}
+
+func (rc *RunControl) close() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
+	for conn, descr := range rc.conns {
+		err := conn.Close()
+		if err != nil {
+			rc.msg.Errorf("could not close cmd-conn to %q: %+v", descr.name, err)
+		}
+		delete(rc.conns, conn)
+	}
+
+	err := rc.srv.Close()
+	if err != nil {
+		rc.msg.Errorf("could not close run-ctl cmd server: %+v", err)
+	}
 }
 
 func (rc *RunControl) serve(ctx context.Context) {
@@ -113,62 +149,15 @@ func (rc *RunControl) serve(ctx context.Context) {
 		default:
 			conn, err := rc.srv.Accept()
 			if err != nil {
-				rc.msg.Errorf("error accepting connection: %v", err)
-				continue
-			}
-			go rc.handleConn(ctx, conn)
-		}
-	}
-}
-
-func (rc *RunControl) input(ctx context.Context) {
-	var (
-		err  error
-		quit = false
-	)
-
-	for {
-		select {
-		case <-rc.quit:
-			return
-		case <-ctx.Done():
-			err := ctx.Err()
-			if err != nil {
-				rc.msg.Errorf("context errored during run-ctl input: %+v", err)
-			}
-			return
-		case cmd := <-rc.cmds:
-			var fct func(context.Context) error
-			switch cmd {
-			case CmdConfig:
-				fct = rc.doConfig
-			case CmdInit:
-				fct = rc.doInit
-			case CmdReset:
-				fct = rc.doReset
-			case CmdStart:
-				fct = rc.doStart
-			case CmdStop:
-				fct = rc.doStop
-			case CmdTerm:
-				fct = rc.doTerm
-				defer close(rc.quit)
-				quit = true
-			default:
-				rc.msg.Warnf("unknown command %v", cmd)
-				continue
-			}
-			err = fct(ctx)
-			if err != nil {
-				rc.msg.Errorf("could not send command %v: %+v", cmd, err)
-				if quit {
-					return
+				select {
+				case <-rc.quit:
+					// ok, we are shutting down.
+				default:
+					rc.msg.Errorf("error accepting connection: %v", err)
 				}
 				continue
 			}
-			if quit {
-				return
-			}
+			go rc.handleConn(ctx, conn)
 		}
 	}
 }
@@ -292,6 +281,31 @@ func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 	return nil
 }
 
+// Do sends the provided command to all connected TDAQ processes.
+func (rc *RunControl) Do(ctx context.Context, cmd CmdType) error {
+	var fct func(context.Context) error
+	switch cmd {
+	case CmdConfig:
+		fct = rc.doConfig
+	case CmdInit:
+		fct = rc.doInit
+	case CmdReset:
+		fct = rc.doReset
+	case CmdStart:
+		fct = rc.doStart
+	case CmdStop:
+		fct = rc.doStop
+	case CmdTerm:
+		fct = rc.doTerm
+	case CmdStatus:
+		fct = rc.doStatus
+	default:
+		return xerrors.Errorf("unknown command %#v", cmd)
+	}
+
+	return fct(ctx)
+}
+
 func (rc *RunControl) doConfig(ctx context.Context) error {
 	rc.msg.Infof("/config processes...")
 	rc.mu.Lock()
@@ -376,7 +390,12 @@ func (rc *RunControl) doStop(ctx context.Context) error {
 
 func (rc *RunControl) doTerm(ctx context.Context) error {
 	rc.msg.Infof("/term processes...")
-	return rc.broadcast(ctx, CmdTerm)
+	err := rc.broadcast(ctx, CmdTerm)
+	if err != nil {
+		return err
+	}
+	close(rc.quit)
+	return nil
 }
 
 func (rc *RunControl) doStatus(ctx context.Context) error {

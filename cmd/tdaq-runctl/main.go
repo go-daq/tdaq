@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
@@ -20,20 +21,29 @@ import (
 func main() {
 	cmd := flags.NewRunControl()
 
-	var (
-		cmds   = make(chan tdaq.CmdType)
-		stdout = os.Stdout
-	)
+	run(cmd, os.Stdout)
+}
 
-	if cmd.Interactive {
-		term := newShell(cmd, cmds)
+func run(cfg config.RunCtl, stdout io.Writer) {
+	rc, err := tdaq.NewRunControl(cfg, os.Stdout)
+	if err != nil {
+		log.Errorf("could not create run control: %v", err)
+		os.Exit(1)
+	}
+
+	if cfg.Interactive {
+		term := newShell(cfg, rc)
 		defer term.Close()
 	}
 
-	run(cmd, cmds, stdout)
+	err = rc.Run(context.Background())
+	if err != nil {
+		log.Errorf("could not run run-ctl: %v", err)
+		os.Exit(1)
+	}
 }
 
-func newShell(cfg config.RunCtl, cmds chan tdaq.CmdType) *liner.State {
+func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 
 	fmt.Printf(`
 ::::::::::::::::::::::::::
@@ -51,7 +61,20 @@ func newShell(cfg config.RunCtl, cmds chan tdaq.CmdType) *liner.State {
 
 	ps1 := cfg.Name + ">> "
 	term := liner.NewLiner()
+	term.SetWordCompleter(shellCompleter)
+	term.SetTabCompletionStyle(liner.TabPrints)
+
 	go func() {
+		quit := make(chan struct{})
+		ctx := context.Background()
+		defer func() {
+			select {
+			case <-quit:
+			default:
+				go rc.Do(ctx, tdaq.CmdTerm)
+			}
+		}()
+
 		for {
 			o, err := term.Prompt(ps1)
 			if err != nil {
@@ -61,21 +84,64 @@ func newShell(cfg config.RunCtl, cmds chan tdaq.CmdType) *liner.State {
 				}
 				return
 			}
-			switch o {
+			words := strings.Split(strings.TrimSpace(o), " ")
+			if len(words) == 0 {
+				continue
+			}
+			switch words[0] {
 			case "":
 				continue
 			case "/config":
-				cmds <- tdaq.CmdConfig
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdConfig)
+				if err != nil {
+					log.Errorf("could not run /config: %+v", err)
+					continue
+				}
 			case "/init":
-				cmds <- tdaq.CmdInit
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdInit)
+				if err != nil {
+					log.Errorf("could not run /init: %+v", err)
+					continue
+				}
 			case "/reset":
-				cmds <- tdaq.CmdReset
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdReset)
+				if err != nil {
+					log.Errorf("could not run /reset: %+v", err)
+					continue
+				}
 			case "/start":
-				cmds <- tdaq.CmdStart
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdStart)
+				if err != nil {
+					log.Errorf("could not run /start: %+v", err)
+					continue
+				}
 			case "/stop":
-				cmds <- tdaq.CmdStop
-			case "/term":
-				cmds <- tdaq.CmdTerm
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdStop)
+				if err != nil {
+					log.Errorf("could not run /stop: %+v", err)
+					continue
+				}
+			case "/term", "/quit":
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdTerm)
+				if err != nil {
+					log.Errorf("could not run /term: %+v", err)
+					continue
+				}
+				close(quit)
+				return
+			case "/status":
+				term.AppendHistory(o)
+				err = rc.Do(ctx, tdaq.CmdStatus)
+				if err != nil {
+					log.Errorf("could not run /status: %+v", err)
+					continue
+				}
 			default:
 				log.Errorf("invalid tdaq command %q", o)
 				continue
@@ -86,16 +152,29 @@ func newShell(cfg config.RunCtl, cmds chan tdaq.CmdType) *liner.State {
 	return term
 }
 
-func run(cfg config.RunCtl, cmds <-chan tdaq.CmdType, stdout io.Writer) {
-	rc, err := tdaq.NewRunControl(cfg, cmds, os.Stdout)
-	if err != nil {
-		log.Errorf("could not create run control: %v", err)
-		os.Exit(1)
+func shellCompleter(line string, pos int) (prefix string, completions []string, suffix string) {
+	if pos != len(line) {
+		// TODO(sbinet): better mid-line matching...
+		prefix, completions, suffix = shellCompleter(line[:pos], pos)
+		return prefix, completions, suffix + line[pos:]
 	}
 
-	err = rc.Run(context.Background())
-	if err != nil {
-		log.Errorf("could not run run-ctl: %v", err)
-		os.Exit(1)
+	if strings.TrimSpace(line) == "" {
+		return line, nil, ""
 	}
+
+	cmds := []string{
+		"/config", "/init", "/reset",
+		"/start", "/stop",
+		"/term", "/quit",
+		"/status",
+	}
+
+	for _, cmd := range cmds {
+		if strings.HasPrefix(cmd, line) {
+			completions = append(completions, cmd[pos:])
+		}
+	}
+
+	return line, completions, ""
 }

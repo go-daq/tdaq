@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tdaq // import "github.com/go-daq/tdaq"
+package tdaq_test // import "github.com/go-daq/tdaq"
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
@@ -29,16 +30,15 @@ func TestRunControl(t *testing.T) {
 	}
 
 	addr := ":" + port
-	cmds := make(chan CmdType)
 	stdout := new(bytes.Buffer)
 
 	cfg := config.RunCtl{
 		Name:   "run-ctl",
-		Level:  log.LvlInfo,
+		Level:  log.LvlDebug,
 		RunCtl: addr,
 	}
 
-	rc, err := NewRunControl(cfg, cmds, stdout)
+	rc, err := tdaq.NewRunControl(cfg, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
@@ -63,7 +63,7 @@ func TestRunControl(t *testing.T) {
 			Level:  log.LvlInfo,
 			RunCtl: addr,
 		}
-		srv := New(cfg)
+		srv := tdaq.New(cfg)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -89,7 +89,7 @@ func TestRunControl(t *testing.T) {
 				Level:  log.LvlInfo,
 				RunCtl: addr,
 			}
-			srv := New(cfg)
+			srv := tdaq.New(cfg)
 			srv.CmdHandle("/init", dev.OnInit)
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)
@@ -110,9 +110,7 @@ loop:
 			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
-			rc.mu.RLock()
-			n := len(rc.conns)
-			rc.mu.RUnlock()
+			n := rc.NumClients()
 			if n == 4 {
 				break loop
 			}
@@ -121,22 +119,28 @@ loop:
 
 	for _, tt := range []struct {
 		name string
-		cmd  CmdType
-		dt   time.Duration
+		cmd  tdaq.CmdType
 	}{
-		{"config", CmdConfig, 20 * time.Millisecond},
-		{"init", CmdInit, 20 * time.Millisecond},
-		{"reset", CmdReset, 10 * time.Millisecond},
-		{"config", CmdConfig, 20 * time.Millisecond},
-		{"init", CmdInit, 20 * time.Millisecond},
-		{"start", CmdStart, 2 * time.Second},
-		{"stop", CmdStop, 10 * time.Millisecond},
-		{"start", CmdStart, 2 * time.Second},
-		{"stop", CmdStop, 10 * time.Millisecond},
-		{"term", CmdTerm, 1 * time.Second},
+		{"config", tdaq.CmdConfig},
+		{"init", tdaq.CmdInit},
+		{"reset", tdaq.CmdReset},
+		{"config", tdaq.CmdConfig},
+		{"init", tdaq.CmdInit},
+		{"start", tdaq.CmdStart},
+		{"stop", tdaq.CmdStop},
+		{"status", tdaq.CmdStatus},
+		{"start", tdaq.CmdStart},
+		{"stop", tdaq.CmdStop},
+		{"term", tdaq.CmdTerm},
 	} {
-		cmds <- tt.cmd
-		time.Sleep(tt.dt)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		func() {
+			defer cancel()
+			err = rc.Do(ctx, tt.cmd)
+			if err != nil {
+				t.Fatalf("could not send command %v: %+v\nstdout:\n%v", tt.cmd, err, stdout.String())
+			}
+		}()
 	}
 
 	err = grp.Wait()
@@ -173,12 +177,12 @@ type testProducer struct {
 	data chan []byte
 }
 
-func (dev *testProducer) OnConfig(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /config command...")
 	return nil
 }
 
-func (dev *testProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
@@ -186,7 +190,7 @@ func (dev *testProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
 	return nil
 }
 
-func (dev *testProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /reset command...")
 	dev.rnd = rand.New(rand.NewSource(dev.seed))
 	dev.data = make(chan []byte, 1024)
@@ -194,23 +198,23 @@ func (dev *testProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
 	return nil
 }
 
-func (dev *testProducer) OnStart(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /start command...")
 	return nil
 }
 
-func (dev *testProducer) OnStop(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
 	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 
-func (dev *testProducer) OnTerminate(ctx Context, resp *Frame, req Frame) error {
+func (dev *testProducer) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }
 
-func (dev *testProducer) adc(ctx Context, dst *Frame) error {
+func (dev *testProducer) adc(ctx tdaq.Context, dst *tdaq.Frame) error {
 	select {
 	case <-ctx.Ctx.Done():
 		dst.Body = nil
@@ -220,7 +224,7 @@ func (dev *testProducer) adc(ctx Context, dst *Frame) error {
 	return nil
 }
 
-func (dev *testProducer) run(ctx Context) error {
+func (dev *testProducer) run(ctx tdaq.Context) error {
 	for {
 		select {
 		case <-ctx.Ctx.Done():
@@ -244,25 +248,25 @@ type testConsumer struct {
 	n int
 }
 
-func (dev *testConsumer) OnInit(ctx Context, resp *Frame, req Frame) error {
+func (dev *testConsumer) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
 	dev.n = 0
 	return nil
 }
 
-func (dev *testConsumer) OnReset(ctx Context, resp *Frame, req Frame) error {
+func (dev *testConsumer) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /reset command...")
 	dev.n = 0
 	return nil
 }
 
-func (dev *testConsumer) OnStop(ctx Context, resp *Frame, req Frame) error {
+func (dev *testConsumer) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.n
 	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
 	return nil
 }
 
-func (dev *testConsumer) adc(ctx Context, src Frame) error {
+func (dev *testConsumer) adc(ctx tdaq.Context, src tdaq.Frame) error {
 	dev.n++
 	return nil
 }
