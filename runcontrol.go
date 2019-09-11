@@ -453,32 +453,31 @@ func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 	var berr []error
 
 	for conn, descr := range rc.conns {
-		rc.msg.Debugf("proc %q...", descr.name)
-		rc.msg.Debugf("sending cmd %v...", cmd)
+		rc.msg.Debugf("sending cmd %v to %q...", cmd, descr.name)
 		err := sendCmd(ctx, conn, cmd, nil)
 		if err != nil {
-			rc.msg.Errorf("could not send cmd %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
+			rc.msg.Errorf("could not send cmd %v to %q: %v", cmd, descr.name, err)
 			berr = append(berr, err)
 			continue
 		}
 		rc.msg.Debugf("sending cmd %v... [ok]", cmd)
-		rc.msg.Debugf("receiving ACK...")
 		ack, err := RecvFrame(ctx, conn)
 		if err != nil {
-			rc.msg.Errorf("could not receive ACK: %v", err)
+			rc.msg.Errorf("could not receive %v ACK from %q: %+v", cmd, descr.name, err)
 			berr = append(berr, err)
 			continue
 		}
 		switch ack.Type {
 		case FrameOK:
-			rc.msg.Debugf("receiving ACK... [ok]")
+			// ok
 		case FrameErr:
-			rc.msg.Errorf("received ERR ACK: %v", string(ack.Body))
+			rc.msg.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
 			berr = append(berr, xerrors.Errorf(string(ack.Body)))
 		default:
-			rc.msg.Errorf("received invalid frame type %v", ack.Type)
-			berr = append(berr, xerrors.Errorf("received invalid frame type %v", ack.Type))
+			rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+			berr = append(berr, xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name))
 		}
+		rc.msg.Debugf("sending cmd %v to %q... [ok]", cmd, descr.name)
 	}
 
 	// FIXME(sbinet): better handling
@@ -543,27 +542,29 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 			OutEndPoints: descr.oeps,
 		}
 		grp.Go(func() error {
+			rc.msg.Debugf("sending /config to %q...", descr.name)
 			err := SendCmd(ctx, conn, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
+				rc.msg.Errorf("could not send /config to %q: %v+", descr.name, err)
 				return err
 			}
 
 			ack, err := RecvFrame(ctx, conn)
 			if err != nil {
-				rc.msg.Errorf("could not receive ACK: %v", err)
+				rc.msg.Errorf("could not receive ACK from %q: %+v", descr.name, err)
 				return err
 			}
 			switch ack.Type {
 			case FrameOK:
-				rc.msg.Debugf("receiving ACK... [ok]")
+				// ok
 			case FrameErr:
-				rc.msg.Errorf("received ERR ACK: %v", string(ack.Body))
-				return xerrors.Errorf(string(ack.Body))
+				rc.msg.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
+				return xerrors.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
 			default:
-				rc.msg.Errorf("received invalid frame type %v", ack.Type)
-				return xerrors.Errorf("received invalid frame type %v", ack.Type)
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
 			}
+			rc.msg.Debugf("sending /config to %q... [ok]", descr.name)
 			return nil
 		})
 	}
@@ -699,13 +700,13 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 		grp.Go(func() error {
 			err := SendCmd(ctx, conn, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send %v to conn %v (%s): %v", cmd, conn.RemoteAddr(), descr.name, err)
+				rc.msg.Errorf("could not send /status to %q: %+v", descr.name, err)
 				return err
 			}
 
 			ack, err := RecvFrame(ctx, conn)
 			if err != nil {
-				rc.msg.Errorf("could not receive ACK: %v", err)
+				rc.msg.Errorf("could not receive /status ACK from %q: %+v", descr.name, err)
 				return err
 			}
 			switch ack.Type {
@@ -713,7 +714,7 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 				cmd, err := newStatusCmd(ack)
 				if err != nil {
 					rc.msg.Errorf("could not receive /status reply for %q: %+v", descr.name, err)
-					return xerrors.Errorf("could not receive /status reply for %q: %w", err)
+					return xerrors.Errorf("could not receive /status reply for %q: %w", descr.name, err)
 				}
 				rc.mu.Lock()
 				descr := rc.conns[conn]
@@ -724,7 +725,7 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 
 			default:
 				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-				return xerrors.Errorf("received invalid frame type %v", ack.Type)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
 			}
 			return nil
 		})
@@ -756,7 +757,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 		grp.Go(func() error {
 			err := SendCmd(ctx, conn, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send /status heartbeat to %s: %v", descr.name, err)
+				rc.msg.Errorf("could not send /status heartbeat to %s: %+v", descr.name, err)
 				return err
 			}
 
@@ -770,7 +771,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 				cmd, err := newStatusCmd(ack)
 				if err != nil {
 					rc.msg.Errorf("could not receive /status heartbeat reply for %q: %+v", descr.name, err)
-					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", err)
+					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", descr.name, err)
 				}
 				rc.mu.Lock()
 				descr := rc.conns[conn]
@@ -780,7 +781,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 
 			default:
 				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-				return xerrors.Errorf("received invalid frame type %v", ack.Type)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
 			}
 			return nil
 		})
