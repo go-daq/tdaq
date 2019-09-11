@@ -304,7 +304,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 				continue
 			}
 
-			go srv.handleCmd(ctx, srv.rctl, frame)
+			srv.handleCmd(ctx, srv.rctl, frame)
 		}
 	}
 }
