@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
+	"math"
 
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/xerrors"
@@ -31,7 +32,7 @@ type Unmarshaler interface {
 }
 
 type Frame struct {
-	Len  int64     // length of frame (Type+Path+Body)
+	Len  int32     // length of frame (Type+Path+Body)
 	Type FrameType // type of frame (cmd,data,err,ok)
 	Path string    // end-point path
 	Body []byte    // frame payload
@@ -80,32 +81,40 @@ func SendFrame(ctx context.Context, w io.Writer, frame Frame) error {
 
 func sendFrame(ctx context.Context, w io.Writer, ftype FrameType, path, body []byte) error {
 
-	hdr := make([]byte, 8+1+1)
-	binary.LittleEndian.PutUint64(hdr, uint64(len(path))+uint64(len(body)))
-	hdr[8] = byte(ftype)
-	hdr[9] = byte(len(path))
+	hdr := make([]byte, 4+1+1)
+	binary.LittleEndian.PutUint32(hdr, uint32(len(path))+uint32(len(body)))
+	hdr[4] = byte(ftype)
+	hdr[5] = byte(len(path))
 	r := io.MultiReader(bytes.NewReader(hdr), bytes.NewReader(path), bytes.NewReader(body))
 	_, err := io.Copy(w, r)
 	return err
 }
 
 func RecvFrame(ctx context.Context, r io.Reader) (frame Frame, err error) {
-	var hdr = make([]byte, 8+1+1)
+	var hdr = make([]byte, 4+1+1)
 	_, err = io.ReadFull(r, hdr)
 	if err != nil {
 		return frame, xerrors.Errorf("could not receive TDAQ frame header: %w", err)
 	}
-	frame.Len = int64(binary.LittleEndian.Uint64(hdr[:8]))
-	frame.Type = FrameType(hdr[8])
+	size := binary.LittleEndian.Uint32(hdr[:4])
+	frame.Len = int32(size)
+	frame.Type = FrameType(hdr[4])
+	if size == 0 {
+		return frame, nil
+	}
 
-	raw := make([]byte, frame.Len)
+	if size < 0 || size >= math.MaxInt32 {
+		return frame, xerrors.Errorf("corrupted frame (len=%d)", size)
+	}
+
+	raw := make([]byte, size)
 	_, err = io.ReadFull(r, raw)
 	if err != nil {
 		return frame, xerrors.Errorf("could not receive TDAQ frame body: %w", err)
 	}
 
-	frame.Path = string(raw[:int(hdr[9])])
-	frame.Body = raw[int(hdr[9]):]
+	frame.Path = string(raw[:int(hdr[5])])
+	frame.Body = raw[int(hdr[5]):]
 
 	return frame, nil
 }

@@ -146,8 +146,8 @@ func (dec *Decoder) ReadF64() float64 {
 }
 
 func (dec *Decoder) ReadStr() string {
-	n := dec.ReadU64()
-	if n == 0 || dec.err != nil {
+	n := dec.ReadI32()
+	if n <= 0 || dec.err != nil || n >= math.MaxInt32 {
 		return ""
 	}
 	str := make([]byte, n)

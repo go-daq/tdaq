@@ -170,10 +170,11 @@ func (enc *Encoder) WriteF64(v float64) {
 }
 
 func (enc *Encoder) WriteStr(v string) {
-	enc.WriteU64(uint64(len(v)))
+	n := int32(len(v))
+	enc.WriteI32(n)
 
 	if enc.err != nil {
 		return
 	}
-	_, enc.err = enc.w.Write([]byte(v))
+	_, enc.err = enc.w.Write([]byte(v[:n]))
 }

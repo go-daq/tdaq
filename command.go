@@ -138,14 +138,14 @@ func (cmd JoinCmd) MarshalTDAQ() ([]byte, error) {
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
 
-	enc.WriteU64(uint64(len(cmd.InEndPoints)))
+	enc.WriteI32(int32(len(cmd.InEndPoints)))
 	for _, ep := range cmd.InEndPoints {
 		enc.WriteStr(ep.Name)
 		enc.WriteStr(ep.Addr)
 		enc.WriteStr(ep.Type)
 	}
 
-	enc.WriteU64(uint64(len(cmd.OutEndPoints)))
+	enc.WriteI32(int32(len(cmd.OutEndPoints)))
 	for _, ep := range cmd.OutEndPoints {
 		enc.WriteStr(ep.Name)
 		enc.WriteStr(ep.Addr)
@@ -158,7 +158,7 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 
 	cmd.Name = dec.ReadStr()
-	n := int(dec.ReadU64())
+	n := int(dec.ReadI32())
 	cmd.InEndPoints = make([]EndPoint, n)
 	for i := range cmd.InEndPoints {
 		ep := &cmd.InEndPoints[i]
@@ -167,7 +167,7 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 		ep.Type = dec.ReadStr()
 	}
 
-	n = int(dec.ReadU64())
+	n = int(dec.ReadI32())
 	cmd.OutEndPoints = make([]EndPoint, n)
 	for i := range cmd.OutEndPoints {
 		ep := &cmd.OutEndPoints[i]
@@ -211,14 +211,14 @@ func (cmd ConfigCmd) MarshalTDAQ() ([]byte, error) {
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
 
-	enc.WriteU64(uint64(len(cmd.InEndPoints)))
+	enc.WriteI32(int32(len(cmd.InEndPoints)))
 	for _, ep := range cmd.InEndPoints {
 		enc.WriteStr(ep.Name)
 		enc.WriteStr(ep.Addr)
 		enc.WriteStr(ep.Type)
 	}
 
-	enc.WriteU64(uint64(len(cmd.OutEndPoints)))
+	enc.WriteI32(int32(len(cmd.OutEndPoints)))
 	for _, ep := range cmd.OutEndPoints {
 		enc.WriteStr(ep.Name)
 		enc.WriteStr(ep.Addr)
@@ -231,7 +231,7 @@ func (cmd *ConfigCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 
 	cmd.Name = dec.ReadStr()
-	n := int(dec.ReadU64())
+	n := int(dec.ReadI32())
 	cmd.InEndPoints = make([]EndPoint, n)
 	for i := range cmd.InEndPoints {
 		ep := &cmd.InEndPoints[i]
@@ -240,7 +240,7 @@ func (cmd *ConfigCmd) UnmarshalTDAQ(p []byte) error {
 		ep.Type = dec.ReadStr()
 	}
 
-	n = int(dec.ReadU64())
+	n = int(dec.ReadI32())
 	cmd.OutEndPoints = make([]EndPoint, n)
 	for i := range cmd.OutEndPoints {
 		ep := &cmd.OutEndPoints[i]
@@ -282,14 +282,14 @@ func (cmd StatusCmd) MarshalTDAQ() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
-	enc.WriteU8(uint8(cmd.Status))
+	enc.WriteI8(int8(cmd.Status))
 	return buf.Bytes(), enc.err
 }
 
 func (cmd *StatusCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 	cmd.Name = dec.ReadStr()
-	cmd.Status = fsm.StateKind(dec.ReadU8())
+	cmd.Status = fsm.StateKind(dec.ReadI8())
 	return dec.err
 }
 
