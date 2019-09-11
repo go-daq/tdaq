@@ -10,19 +10,20 @@ func _() {
 	var x [1]struct{}
 	_ = x[CmdUnknown-0]
 	_ = x[CmdJoin-1]
-	_ = x[CmdConfig-2]
-	_ = x[CmdInit-3]
-	_ = x[CmdReset-4]
-	_ = x[CmdStart-5]
-	_ = x[CmdStop-6]
-	_ = x[CmdTerm-7]
-	_ = x[CmdStatus-8]
-	_ = x[CmdLog-9]
+	_ = x[CmdHBeat-2]
+	_ = x[CmdConfig-3]
+	_ = x[CmdInit-4]
+	_ = x[CmdReset-5]
+	_ = x[CmdStart-6]
+	_ = x[CmdStop-7]
+	_ = x[CmdTerm-8]
+	_ = x[CmdStatus-9]
+	_ = x[CmdLog-10]
 }
 
-const _CmdType_name = "CmdUnknownCmdJoinCmdConfigCmdInitCmdResetCmdStartCmdStopCmdTermCmdStatusCmdLog"
+const _CmdType_name = "CmdUnknownCmdJoinCmdHBeatCmdConfigCmdInitCmdResetCmdStartCmdStopCmdTermCmdStatusCmdLog"
 
-var _CmdType_index = [...]uint8{0, 10, 17, 26, 33, 41, 49, 56, 63, 72, 78}
+var _CmdType_index = [...]uint8{0, 10, 17, 25, 34, 41, 49, 57, 64, 71, 80, 86}
 
 func (i CmdType) String() string {
 	if i >= CmdType(len(_CmdType_index)-1) {

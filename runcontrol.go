@@ -364,35 +364,26 @@ func (rc *RunControl) serveWeb(ctx context.Context) {
 }
 
 func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
 	setupTCPConn(conn.(*net.TCPConn))
 
 	req, err := RecvFrame(ctx, conn)
 	if err != nil {
-		rc.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
-		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
-		return
-	}
-	cmd, err := CmdFrom(req)
-	if err != nil {
-		rc.msg.Errorf("could not receive JOIN cmd from conn %v: %v", conn.RemoteAddr(), err)
-		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
-		return
-	}
-	if cmd.Type != CmdJoin {
-		rc.msg.Errorf("received invalid cmd from conn %v: cmd=%v (want JOIN)", conn.RemoteAddr(), cmd.Type)
-		sendFrame(ctx, conn, FrameErr, nil, []byte(fmt.Sprintf("invalid cmd %v, want JOIN", cmd.Type)))
-		return
-	}
-
-	var join JoinCmd
-	err = join.UnmarshalTDAQ(cmd.Body)
-	if err != nil {
-		rc.msg.Errorf("could not decode JOIN cmd payload: %v", err)
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %v", conn.RemoteAddr(), err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
 
-	rc.msg.Infof("received JOIN from conn %v", conn.RemoteAddr())
+	join, err := newJoinCmd(req)
+	if err != nil {
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %v", conn.RemoteAddr(), err)
+		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
+		return
+	}
+
+	rc.msg.Infof("received /join from conn %v", conn.RemoteAddr())
 	rc.msg.Infof("  proc: %q", join.Name)
 	if len(join.InEndPoints) > 0 {
 		rc.msg.Infof("   - inputs:")
@@ -420,15 +411,6 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		}
 	}
 
-	join.HBeat = rc.hbeat.Addr().String()
-
-	err = SendCmd(ctx, conn, &join)
-	if err != nil {
-		rc.msg.Errorf("could not send /join-ACK to conn %q: %v", join.Name, err)
-		return
-	}
-
-	rc.mu.Lock()
 	rc.procs[join.Name] = &proc{
 		name: join.Name,
 		status: fsm.Status{
@@ -438,29 +420,70 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		oeps: join.OutEndPoints,
 		cmd:  conn,
 	}
-	rc.mu.Unlock()
 
-	err = SendCmd(ctx, conn, &LogCmd{Name: join.Name, Addr: rc.log.Addr().String()})
+	ackOK := Frame{Type: FrameOK}
+	err = SendFrame(ctx, conn, ackOK)
 	if err != nil {
-		rc.msg.Errorf("could not send /log cmd to %q: %+v", join.Name, err)
+		rc.msg.Errorf("could not recv /join-ack from %q: %+", join.Name, err)
+		return
+	}
+
+	err1 := rc.setupLogCmd(ctx, join.Name, conn)
+	if err1 != nil {
+		rc.msg.Errorf("could not setup /log cmd: %+v", err1)
+		return
+	}
+
+	err2 := rc.setupHBeatCmd(ctx, join.Name, conn)
+	if err2 != nil {
+		rc.msg.Errorf("could not setup /hbeat cmd: %+v", err2)
+		return
+	}
+}
+
+func (rc *RunControl) setupLogCmd(ctx context.Context, name string, conn net.Conn) error {
+	err := SendCmd(ctx, conn, &LogCmd{Name: name, Addr: rc.log.Addr().String()})
+	if err != nil {
+		return xerrors.Errorf("could not send /log cmd to %q: %w", name, err)
 	}
 
 	ack, err := RecvFrame(ctx, conn)
 	if err != nil {
-		rc.msg.Errorf("could not receive /log cmd ack from %q: %v", join.Name, err)
+		err = xerrors.Errorf("could not receive /log cmd ack from %q: %w", name, err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
-		return
+		return err
 	}
 
 	switch ack.Type {
 	case FrameOK:
-		return // ok
+		return nil // ok
 	case FrameErr:
-		rc.msg.Errorf("received error /log-ack frame from conn %q: %s", join.Name, string(ack.Body))
-		return
+		return xerrors.Errorf("received error /log-ack frame from conn %q: %s", name, string(ack.Body))
 	default:
-		rc.msg.Errorf("received invalid /log-ack frame from conn %q: %#v", join.Name, ack)
-		return
+		return xerrors.Errorf("received invalid /log-ack frame from conn %q: %#v", name, ack)
+	}
+}
+
+func (rc *RunControl) setupHBeatCmd(ctx context.Context, name string, conn net.Conn) error {
+	err := SendCmd(ctx, conn, &HBeatCmd{Name: name, Addr: rc.hbeat.Addr().String()})
+	if err != nil {
+		return xerrors.Errorf("could not send /hbeat cmd to %q: %w", name, err)
+	}
+
+	ack, err := RecvFrame(ctx, conn)
+	if err != nil {
+		err = xerrors.Errorf("could not receive /hbeat cmd ack from %q: %w", name, err)
+		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
+		return err
+	}
+
+	switch ack.Type {
+	case FrameOK:
+		return nil // ok
+	case FrameErr:
+		return xerrors.Errorf("received error /log-ack frame from conn %q: %s", name, string(ack.Body))
+	default:
+		return xerrors.Errorf("received invalid /log-ack frame from conn %q: %#v", name, ack)
 	}
 }
 
@@ -511,6 +534,26 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 func (rc *RunControl) handleHeartbeatConn(ctx context.Context, conn net.Conn) {
 	setupTCPConn(conn.(*net.TCPConn))
 	defer conn.Close()
+
+	req, err := RecvFrame(ctx, conn)
+	if err != nil {
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %+v", conn.RemoteAddr(), err)
+		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
+		return
+	}
+	cmd, err := newJoinCmd(req)
+	if err != nil {
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %+v", conn.RemoteAddr(), err)
+		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
+		return
+	}
+
+	ackOK := Frame{Type: FrameOK}
+	err = SendFrame(ctx, conn, ackOK)
+	if err != nil {
+		rc.msg.Errorf("could not send /join-ack hbeat to %q: %+v", cmd.Name, err)
+		return
+	}
 
 	hbeat := time.NewTicker(5 * time.Second)
 	defer hbeat.Stop()
@@ -831,6 +874,10 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 	rc.mu.RLock()
 	procs := make([]string, 0, len(rc.procs))
 	for name := range rc.procs {
+		if rc.procs[name].hbeat == nil {
+			// no heartbeat yet
+			continue
+		}
 		procs = append(procs, name)
 	}
 	rc.mu.RUnlock()

@@ -369,6 +369,10 @@ func (mgr *cmdmgr) Handle(name string, handler CmdHandler) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
+	if name == "/status" {
+		panic(xerrors.Errorf("handle %q is not allowed", name))
+	}
+
 	if len(mgr.set) != 0 {
 		if _, ok := mgr.set[name]; !ok {
 			allowed := make([]string, 0, len(mgr.set))

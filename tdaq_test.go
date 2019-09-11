@@ -52,7 +52,15 @@ func TestRunControl(t *testing.T) {
 		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
 	}
 	fname.Close()
-	defer os.Remove(fname.Name())
+	defer func() {
+		if err != nil {
+			raw, err := ioutil.ReadFile(fname.Name())
+			if err == nil {
+				t.Logf("log-file:\n%v\n", string(raw))
+			}
+		}
+		os.Remove(fname.Name())
+	}()
 
 	cfg := config.RunCtl{
 		Name:    "run-ctl",
@@ -162,7 +170,7 @@ loop:
 			defer cancel()
 			err = rc.Do(ctx, tt.cmd)
 			if err != nil {
-				t.Fatalf("could not send command %v: %+v\nstdout:\n%v", tt.cmd, err, stdout.String())
+				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 		}()
 	}

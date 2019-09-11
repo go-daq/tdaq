@@ -26,8 +26,9 @@ type Server struct {
 	name string
 	cfg  config.Process
 
-	rctl net.Conn
-	log  net.Conn
+	rctl  net.Conn
+	hbeat net.Conn
+	log   net.Conn
 
 	mu   sync.RWMutex
 	msg  *msgstream
@@ -55,12 +56,9 @@ func New(cfg config.Process) *Server {
 		cfg:  cfg,
 		msg:  newMsgStream(cfg.Name, cfg.Level, os.Stdout),
 		cmgr: newCmdMgr(
-			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",
 			"/term",
-
 			"/status",
-			"/log",
 		),
 
 		quit: make(chan struct{}),
@@ -114,6 +112,7 @@ func (srv *Server) Run(ctx context.Context) error {
 
 	srv.cmgr.init()
 
+	go srv.hbeatLoop(ctx)
 	go srv.cmdsLoop(ctx)
 
 	select {
@@ -163,34 +162,107 @@ func (srv *Server) join(ctx context.Context) error {
 
 	select {
 	case <-srv.quit:
-		return xerrors.Errorf("could not join run-ctl before terminate")
+		return xerrors.Errorf("could not /join run-ctl before terminate")
 	case <-ctx.Done():
-		return xerrors.Errorf("could not join run-ctl before timeout: %w", ctx.Err())
+		return xerrors.Errorf("could not /join run-ctl before timeout: %w", ctx.Err())
 	default:
-		cmd := JoinCmd{
+		join := JoinCmd{
 			Name:         srv.name,
 			InEndPoints:  srv.imgr.endpoints(),
 			OutEndPoints: srv.omgr.endpoints(),
 		}
 
-		err := SendCmd(ctx, srv.rctl, &cmd)
+		err := SendCmd(ctx, srv.rctl, &join)
 		if err != nil {
-			return xerrors.Errorf("could not send JOIN frame to run-ctl: %w", err)
+			return xerrors.Errorf("could not send /join cmd to run-ctl: %w", err)
 		}
 
 		frame, err := RecvFrame(ctx, srv.rctl)
 		if err != nil {
-			return xerrors.Errorf("could not recv JOIN-ACK frame from run-ctl: %w", err)
+			return xerrors.Errorf("could not recv /join-ack from run-ctl: %w", err)
 		}
 		switch frame.Type {
 		case FrameOK:
-			return nil // OK
+			// OK
 		case FrameErr:
-			return xerrors.Errorf("received error JOIN-ACK frame from run-ctl: %s", frame.Body)
+			return xerrors.Errorf("received error /join-ack from run-ctl: %s", frame.Body)
 		default:
-			return xerrors.Errorf("received invalid JOIN-ACK frame from run-ctl")
+			return xerrors.Errorf("received invalid /join-ack frame from run-ctl (frame=%#v)", frame)
+		}
+
+		err = srv.setupLogCmd(ctx)
+		if err != nil {
+			return xerrors.Errorf("could not setup /log cmd: %w", err)
+		}
+
+		err = srv.setupHBeatCmd(ctx)
+		if err != nil {
+			return xerrors.Errorf("could not setup /hbeat cmd: %w", err)
 		}
 	}
+
+	return nil
+}
+
+func (srv *Server) setupLogCmd(ctx context.Context) error {
+	frame, err := RecvFrame(ctx, srv.rctl)
+	if err != nil {
+		return xerrors.Errorf("could not recv /log cmd from run-ctl: %w", err)
+	}
+	if frame.Type != FrameCmd {
+		return xerrors.Errorf("received invalid /log cmd from run-ctl: type=%v", frame.Type)
+	}
+
+	cmd, err := newLogCmd(frame)
+	if err != nil {
+		return xerrors.Errorf("received invalid /log cmd from run-ctl: %w", err)
+	}
+
+	ackOK := Frame{Type: FrameOK}
+	err = SendFrame(ctx, srv.rctl, ackOK)
+	if err != nil {
+		return xerrors.Errorf("could not send /log-ack to run-ctl: %w", err)
+	}
+
+	conn, err := net.Dial("tcp", cmd.Addr)
+	if err != nil {
+		return xerrors.Errorf("could not dial run-ctl log server: %w", err)
+	}
+	setupTCPConn(conn.(*net.TCPConn))
+
+	srv.log = conn
+	srv.msg.setLog(srv.log)
+
+	return nil
+}
+
+func (srv *Server) setupHBeatCmd(ctx context.Context) error {
+	frame, err := RecvFrame(ctx, srv.rctl)
+	if err != nil {
+		return xerrors.Errorf("could not recv /hbeat cmd from run-ctl: %w", err)
+	}
+	if frame.Type != FrameCmd {
+		return xerrors.Errorf("received invalid /hbeat cmd from run-ctl: type=%v", frame.Type)
+	}
+
+	cmd, err := newHBeatCmd(frame)
+	if err != nil {
+		return xerrors.Errorf("received invalid /hbeat cmd from run-ctl: %w", err)
+	}
+
+	ackOK := Frame{Type: FrameOK}
+	err = SendFrame(ctx, srv.rctl, ackOK)
+	if err != nil {
+		return xerrors.Errorf("could not send /hbeat-ack to run-ctl: %w", err)
+	}
+
+	conn, err := net.Dial("tcp", cmd.Addr)
+	if err != nil {
+		return xerrors.Errorf("could not dial run-ctl hbeat server: %w", err)
+	}
+	setupTCPConn(conn.(*net.TCPConn))
+
+	srv.hbeat = conn
 
 	return nil
 }
@@ -290,9 +362,6 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	case "/status":
 		onCmd = srv.onStatus
-		next = srv.getCurState()
-	case "/log":
-		onCmd = srv.onLog
 		next = srv.getCurState()
 
 	default:
@@ -475,22 +544,85 @@ func (srv *Server) onStatus(ctx Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onLog(ctx Context, req Frame) error {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
+func (srv *Server) hbeatLoop(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	cmd, err := newLogCmd(req)
+	cmd := JoinCmd{Name: srv.name}
+	err := SendCmd(ctx, srv.hbeat, &cmd)
 	if err != nil {
-		return xerrors.Errorf("%s: received an invalid /log cmd: %w", srv.name, err)
+		srv.msg.Errorf("%s: could not send /join to run-ctl hbeat: %+v", srv.name, err)
+		return
 	}
 
-	conn, err := net.Dial("tcp", cmd.Addr)
-	if err != nil {
-		return xerrors.Errorf("%s: could not connect to log server %q: %w", srv.name, cmd.Addr, err)
+	ack, err := RecvFrame(ctx, srv.hbeat)
+	switch ack.Type {
+	case FrameOK:
+		// OK
+	case FrameErr:
+		srv.msg.Errorf("received error /join-ack from run-ctl hbeat: %s", ack.Body)
+		return
+	default:
+		srv.msg.Errorf("received invalid /join-ack frame from run-ctl hbeat (type=%#v)", ack.Type)
+		return
 	}
-	srv.log = conn
 
-	srv.msg = newMsgStream(srv.name, srv.cfg.Level, srv.log, os.Stdout)
+	for {
+		select {
+		case <-srv.quit:
+			return
+		default:
+			frame, err := RecvFrame(ctx, srv.hbeat)
+			switch {
+			case err == nil:
+				// ok
+			case xerrors.Is(err, io.EOF):
+				switch state := srv.getNextState(); state {
+				case fsm.Exiting:
+					// ok
+				default:
+					srv.msg.Warnf("connection to run-ctl: %+v", err)
+				}
+				return
+
+			default:
+				var nerr net.Error
+				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+					switch state := srv.getNextState(); state {
+					case fsm.Exiting:
+						// ok
+					default:
+						srv.msg.Warnf("connection to run-ctl: %+v", err)
+					}
+					return
+				}
+				srv.msg.Warnf("could not receive cmds from run-ctl: %+v", err)
+				continue
+			}
+
+			err = srv.handleHBeat(ctx, frame)
+			if err != nil {
+				srv.msg.Errorf("could not send /hbeat recv to run-ctl: %+v", err)
+			}
+		}
+	}
+}
+
+func (srv *Server) handleHBeat(ctx context.Context, frame Frame) error {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+
+	state := srv.state.cur
+	cmd := StatusCmd{
+		Name:   srv.name,
+		Status: state,
+	}
+
+	err := SendCmd(ctx, srv.hbeat, &cmd)
+	if err != nil {
+		return xerrors.Errorf("%s: could not send /hbeat reply: %w", srv.name, err)
+	}
+
 	return nil
 }
 
