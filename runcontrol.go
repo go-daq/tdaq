@@ -162,6 +162,7 @@ loop:
 }
 
 func (rc *RunControl) close() {
+	rc.msg.Infof("closing...")
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
@@ -670,6 +671,7 @@ func (rc *RunControl) doTerm(ctx context.Context) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.msg.Infof("/term processes...")
+	defer close(rc.quit)
 
 	err := rc.broadcast(ctx, CmdTerm)
 	if err != nil {
@@ -678,7 +680,6 @@ func (rc *RunControl) doTerm(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Exiting
-	close(rc.quit)
 	return nil
 }
 
