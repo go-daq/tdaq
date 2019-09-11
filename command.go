@@ -127,6 +127,7 @@ func recvCmd(ctx context.Context, r io.Reader) (cmd Cmd, err error) {
 
 type JoinCmd struct {
 	Name         string
+	HBeat        string
 	InEndPoints  []EndPoint
 	OutEndPoints []EndPoint
 }
@@ -137,6 +138,7 @@ func (cmd JoinCmd) MarshalTDAQ() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
+	enc.WriteStr(cmd.HBeat)
 
 	enc.WriteI32(int32(len(cmd.InEndPoints)))
 	for _, ep := range cmd.InEndPoints {
@@ -158,6 +160,7 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 
 	cmd.Name = dec.ReadStr()
+	cmd.HBeat = dec.ReadStr()
 	n := int(dec.ReadI32())
 	cmd.InEndPoints = make([]EndPoint, n)
 	for i := range cmd.InEndPoints {

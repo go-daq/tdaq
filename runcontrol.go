@@ -67,9 +67,10 @@ func (p *proc) close() error {
 type RunControl struct {
 	quit chan struct{}
 
-	srv net.Listener // ctl server
-	log net.Listener // log server
-	web *http.Server // web server
+	srv   net.Listener // ctl server
+	hbeat net.Listener // hbeat server
+	log   net.Listener // log server
+	web   *http.Server // web server
 
 	stdout io.Writer
 
@@ -127,6 +128,12 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.log = srv
 
+	hbeat, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return nil, xerrors.Errorf("could not create TCP hbeat server: %w", err)
+	}
+	rc.hbeat = hbeat
+
 	if cfg.Web != "" {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", rc.webHome)
@@ -156,13 +163,11 @@ func (rc *RunControl) Run(ctx context.Context) error {
 	defer cancel()
 
 	go rc.serveLog(ctx)
+	go rc.serveHeartbeat(ctx)
 	go rc.serveCtl(ctx)
 	go rc.serveWeb(ctx)
 
 	var err error
-
-	hbeat := time.NewTicker(5 * time.Second)
-	defer hbeat.Stop()
 
 loop:
 	for {
@@ -176,12 +181,6 @@ loop:
 			close(rc.quit)
 			err = ctx.Err()
 			break loop
-
-		case <-hbeat.C:
-			err := rc.doHeartbeat(ctx)
-			if err != nil {
-				rc.msg.Warnf("could not process /status heartbeat: %+v", err)
-			}
 		}
 	}
 
@@ -222,6 +221,14 @@ func (rc *RunControl) close() {
 			rc.msg.Errorf("could not close run-ctl log file: %+v", err)
 		}
 		rc.flog = nil
+	}
+
+	if rc.hbeat != nil {
+		err := rc.hbeat.Close()
+		if err != nil {
+			rc.msg.Errorf("could not close run-ctl heartbeat server: %+v", err)
+		}
+		rc.hbeat = nil
 	}
 
 	if rc.srv != nil {
@@ -299,6 +306,36 @@ func (rc *RunControl) serveLog(ctx context.Context) {
 				continue
 			}
 			go rc.handleLogConn(ctx, conn)
+		}
+	}
+}
+
+func (rc *RunControl) serveHeartbeat(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case <-ctx.Done():
+			err := ctx.Err()
+			if err != nil {
+				rc.msg.Errorf("context errored during run-ctl heartbeat serve: %v", err)
+			}
+			return
+		default:
+			conn, err := rc.hbeat.Accept()
+			if err != nil {
+				select {
+				case <-rc.quit:
+					// ok, we are shutting down.
+				default:
+					rc.msg.Errorf("error accepting connection: %v", err)
+				}
+				continue
+			}
+			go rc.handleHeartbeatConn(ctx, conn)
 		}
 	}
 }
@@ -383,9 +420,11 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		}
 	}
 
-	err = sendFrame(ctx, conn, FrameOK, nil, nil)
+	join.HBeat = rc.hbeat.Addr().String()
+
+	err = SendCmd(ctx, conn, &join)
 	if err != nil {
-		rc.msg.Errorf("could not send OK-frame to conn %v (%s): %v", conn.RemoteAddr(), join.Name, err)
+		rc.msg.Errorf("could not send /join-ACK to conn %q: %v", join.Name, err)
 		return
 	}
 
@@ -464,6 +503,28 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 			case rc.msgch <- msg:
 			default:
 				// ok to drop messages.
+			}
+		}
+	}
+}
+
+func (rc *RunControl) handleHeartbeatConn(ctx context.Context, conn net.Conn) {
+	setupTCPConn(conn.(*net.TCPConn))
+	defer conn.Close()
+
+	hbeat := time.NewTicker(5 * time.Second)
+	defer hbeat.Stop()
+
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case <-ctx.Done():
+			return
+		case <-hbeat.C:
+			err := rc.doHeartbeat(ctx)
+			if err != nil {
+				rc.msg.Warnf("could not process /status heartbeat: %+v", err)
 			}
 		}
 	}
