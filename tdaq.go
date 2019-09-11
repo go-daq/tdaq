@@ -107,6 +107,10 @@ func RecvFrame(ctx context.Context, r io.Reader) (frame Frame, err error) {
 		return frame, xerrors.Errorf("corrupted frame (len=%d)", size)
 	}
 
+	if int(size) < int(hdr[5]) {
+		return frame, xerrors.Errorf("corrupted frame (len=%d, hdr=%d)", size, hdr[5])
+	}
+
 	raw := make([]byte, size)
 	_, err = io.ReadFull(r, raw)
 	if err != nil {
