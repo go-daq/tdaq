@@ -30,7 +30,7 @@ type Server struct {
 	log  net.Conn
 
 	mu   sync.RWMutex
-	msg  log.MsgStream
+	msg  *msgstream
 	imgr *imgr
 	omgr *omgr
 	cmgr *cmdmgr
@@ -53,7 +53,7 @@ func New(cfg config.Process) *Server {
 		rc:   cfg.RunCtl,
 		name: cfg.Name,
 		cfg:  cfg,
-		msg:  log.NewMsgStream(cfg.Name, cfg.Level, os.Stdout),
+		msg:  newMsgStream(cfg.Name, cfg.Level, os.Stdout),
 		cmgr: newCmdMgr(
 			"/join",
 			"/config", "/init", "/reset", "/start", "/stop",
@@ -495,43 +495,46 @@ func (srv *Server) onLog(ctx Context, req Frame) error {
 }
 
 type msgstream struct {
+	mu   sync.Mutex
 	lvl  log.Level
 	w    io.Writer
 	conn net.Conn
 	n    string
 }
 
-func newMsgStream(name string, lvl log.Level, conn net.Conn, w io.Writer) log.MsgStream {
+func newMsgStream(name string, lvl log.Level, w io.Writer) *msgstream {
 	return &msgstream{
-		lvl:  lvl,
-		conn: conn,
-		w:    w,
-		n:    fmt.Sprintf("%-20s ", name),
+		lvl: lvl,
+		w:   w,
+		n:   fmt.Sprintf("%-20s ", name),
 	}
 }
 
 // Debugf displays a (formated) DBG message
-func (msg msgstream) Debugf(format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Debugf(format string, a ...interface{}) (int, error) {
 	return msg.Msg(log.LvlDebug, format, a...)
 }
 
 // Infof displays a (formated) INFO message
-func (msg msgstream) Infof(format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Infof(format string, a ...interface{}) (int, error) {
 	return msg.Msg(log.LvlInfo, format, a...)
 }
 
 // Warnf displays a (formated) WARN message
-func (msg msgstream) Warnf(format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Warnf(format string, a ...interface{}) (int, error) {
 	return msg.Msg(log.LvlWarning, format, a...)
 }
 
 // Errorf displays a (formated) ERR message
-func (msg msgstream) Errorf(format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Errorf(format string, a ...interface{}) (int, error) {
 	return msg.Msg(log.LvlError, format, a...)
 }
 
 // Msg displays a (formated) message with level lvl.
-func (msg msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, error) {
+	msg.mu.Lock()
+	defer msg.mu.Unlock()
+
 	if lvl < msg.lvl {
 		return 0, nil
 	}
@@ -541,12 +544,22 @@ func (msg msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, e
 	}
 	format = msg.n + lvl.MsgString() + " " + format + eol
 	str := []byte(fmt.Sprintf(format, a...))
-	go SendMsg(context.Background(), msg.conn, MsgFrame{
-		Name:  strings.TrimSpace(msg.n),
-		Level: lvl,
-		Msg:   string(str),
-	})
+
+	if msg.conn != nil {
+		go SendMsg(context.Background(), msg.conn, MsgFrame{
+			Name:  strings.TrimSpace(msg.n),
+			Level: lvl,
+			Msg:   string(str),
+		})
+	}
+
 	return msg.w.Write(str)
+}
+
+func (msg *msgstream) setLog(conn net.Conn) {
+	msg.mu.Lock()
+	msg.conn = conn
+	msg.mu.Unlock()
 }
 
 var (
