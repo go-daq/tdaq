@@ -24,7 +24,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type descr struct {
+type proc struct {
 	name   string
 	status fsm.Status
 	ieps   []EndPoint
@@ -33,23 +33,23 @@ type descr struct {
 	hbeat  net.Conn
 }
 
-func (d *descr) close() error {
+func (p *proc) close() error {
 	var (
 		err1 error
 		err2 error
 	)
 
-	if d.cmd != nil {
-		err1 = d.cmd.Close()
+	if p.cmd != nil {
+		err1 = p.cmd.Close()
 		if err1 == nil {
-			d.cmd = nil
+			p.cmd = nil
 		}
 	}
 
-	if d.hbeat != nil {
-		err2 = d.hbeat.Close()
+	if p.hbeat != nil {
+		err2 = p.hbeat.Close()
 		if err2 == nil {
-			d.hbeat = nil
+			p.hbeat = nil
 		}
 	}
 
@@ -76,7 +76,7 @@ type RunControl struct {
 	mu        sync.RWMutex
 	status    fsm.StateKind
 	msg       log.MsgStream
-	conns     map[string]*descr
+	procs     map[string]*proc
 	listening bool
 
 	msgch chan MsgFrame // messages from log server
@@ -107,7 +107,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		stdout:    out,
 		status:    fsm.UnConf,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
-		conns:     make(map[string]*descr),
+		procs:     make(map[string]*proc),
 		listening: true,
 		msgch:     make(chan MsgFrame, 1024),
 		flog:      flog,
@@ -145,7 +145,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 // NumClients returns the number of TDAQ processes connected to this run control.
 func (rc *RunControl) NumClients() int {
 	rc.mu.RLock()
-	n := len(rc.conns)
+	n := len(rc.procs)
 	rc.mu.RUnlock()
 	return n
 }
@@ -199,14 +199,14 @@ func (rc *RunControl) close() {
 	defer rc.mu.Unlock()
 	rc.msg.Infof("closing...")
 
-	for _, descr := range rc.conns {
-		err := descr.close()
+	for _, proc := range rc.procs {
+		err := proc.close()
 		if err != nil {
-			rc.msg.Errorf("could not close proc to %q: %+v", descr.name, err)
+			rc.msg.Errorf("could not close proc to %q: %+v", proc.name, err)
 		}
-		delete(rc.conns, descr.name)
+		delete(rc.procs, proc.name)
 	}
-	rc.conns = nil
+	rc.procs = nil
 
 	if rc.log != nil {
 		err := rc.log.Close()
@@ -390,7 +390,7 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	}
 
 	rc.mu.Lock()
-	rc.conns[join.Name] = &descr{
+	rc.procs[join.Name] = &proc{
 		name: join.Name,
 		status: fsm.Status{
 			State: fsm.UnConf,
@@ -489,18 +489,18 @@ func (rc *RunControl) processLog(msg MsgFrame) {
 func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 	var berr []error
 
-	for _, descr := range rc.conns {
-		rc.msg.Debugf("sending cmd %v to %q...", cmd, descr.name)
-		err := sendCmd(ctx, descr.cmd, cmd, nil)
+	for _, proc := range rc.procs {
+		rc.msg.Debugf("sending cmd %v to %q...", cmd, proc.name)
+		err := sendCmd(ctx, proc.cmd, cmd, nil)
 		if err != nil {
-			rc.msg.Errorf("could not send cmd %v to %q: %v", cmd, descr.name, err)
+			rc.msg.Errorf("could not send cmd %v to %q: %v", cmd, proc.name, err)
 			berr = append(berr, err)
 			continue
 		}
 		rc.msg.Debugf("sending cmd %v... [ok]", cmd)
-		ack, err := RecvFrame(ctx, descr.cmd)
+		ack, err := RecvFrame(ctx, proc.cmd)
 		if err != nil {
-			rc.msg.Errorf("could not receive %v ACK from %q: %+v", cmd, descr.name, err)
+			rc.msg.Errorf("could not receive %v ACK from %q: %+v", cmd, proc.name, err)
 			berr = append(berr, err)
 			continue
 		}
@@ -508,13 +508,13 @@ func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 		case FrameOK:
 			// ok
 		case FrameErr:
-			rc.msg.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
+			rc.msg.Errorf("received ERR ACK from %q: %v", proc.name, string(ack.Body))
 			berr = append(berr, xerrors.Errorf(string(ack.Body)))
 		default:
-			rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-			berr = append(berr, xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name))
+			rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
+			berr = append(berr, xerrors.Errorf("received invalid frame type %v from %q", ack.Type, proc.name))
 		}
-		rc.msg.Debugf("sending cmd %v to %q... [ok]", cmd, descr.name)
+		rc.msg.Debugf("sending cmd %v to %q... [ok]", cmd, proc.name)
 	}
 
 	// FIXME(sbinet): better handling
@@ -555,51 +555,51 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	names := make([]string, 0, len(rc.conns))
-	for _, descr := range rc.conns {
-		for i := range descr.ieps {
-			iport := &descr.ieps[i]
+	procs := make([]string, 0, len(rc.procs))
+	for _, proc := range rc.procs {
+		for i := range proc.ieps {
+			iport := &proc.ieps[i]
 			provider, ok := rc.providerOf(*iport)
 			if !ok {
-				return xerrors.Errorf("could not find a provider for input %q for %q", iport.Name, descr.name)
+				return xerrors.Errorf("could not find a provider for input %q for %q", iport.Name, proc.name)
 			}
 			iport.Addr = provider
 		}
-		names = append(names, descr.name)
+		procs = append(procs, proc.name)
 	}
 
 	var grp errgroup.Group
-	for i := range names {
-		descr := rc.conns[names[i]]
+	for i := range procs {
+		proc := rc.procs[procs[i]]
 		cmd := ConfigCmd{
-			Name:         descr.name,
-			InEndPoints:  descr.ieps,
-			OutEndPoints: descr.oeps,
+			Name:         proc.name,
+			InEndPoints:  proc.ieps,
+			OutEndPoints: proc.oeps,
 		}
 		grp.Go(func() error {
-			rc.msg.Debugf("sending /config to %q...", descr.name)
-			err := SendCmd(ctx, descr.cmd, &cmd)
+			rc.msg.Debugf("sending /config to %q...", proc.name)
+			err := SendCmd(ctx, proc.cmd, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send /config to %q: %v+", descr.name, err)
+				rc.msg.Errorf("could not send /config to %q: %v+", proc.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, descr.cmd)
+			ack, err := RecvFrame(ctx, proc.cmd)
 			if err != nil {
-				rc.msg.Errorf("could not receive ACK from %q: %+v", descr.name, err)
+				rc.msg.Errorf("could not receive ACK from %q: %+v", proc.name, err)
 				return err
 			}
 			switch ack.Type {
 			case FrameOK:
 				// ok
 			case FrameErr:
-				rc.msg.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
-				return xerrors.Errorf("received ERR ACK from %q: %v", descr.name, string(ack.Body))
+				rc.msg.Errorf("received ERR ACK from %q: %v", proc.name, string(ack.Body))
+				return xerrors.Errorf("received ERR ACK from %q: %v", proc.name, string(ack.Body))
 			default:
-				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
 			}
-			rc.msg.Debugf("sending /config to %q... [ok]", descr.name)
+			rc.msg.Debugf("sending /config to %q... [ok]", proc.name)
 			return nil
 		})
 	}
@@ -611,8 +611,8 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Conf
-	for _, descr := range rc.conns {
-		descr.status.State = rc.status
+	for _, proc := range rc.procs {
+		proc.status.State = rc.status
 	}
 
 	return nil
@@ -630,8 +630,8 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Init
-	for _, descr := range rc.conns {
-		descr.status.State = rc.status
+	for _, proc := range rc.procs {
+		proc.status.State = rc.status
 	}
 
 	return nil
@@ -649,8 +649,8 @@ func (rc *RunControl) doReset(ctx context.Context) error {
 	}
 
 	rc.status = fsm.UnConf
-	for _, descr := range rc.conns {
-		descr.status.State = rc.status
+	for _, proc := range rc.procs {
+		proc.status.State = rc.status
 	}
 
 	return nil
@@ -668,8 +668,8 @@ func (rc *RunControl) doStart(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Running
-	for _, descr := range rc.conns {
-		descr.status.State = rc.status
+	for _, proc := range rc.procs {
+		proc.status.State = rc.status
 	}
 
 	return nil
@@ -687,8 +687,8 @@ func (rc *RunControl) doStop(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Stopped
-	for _, descr := range rc.conns {
-		descr.status.State = rc.status
+	for _, proc := range rc.procs {
+		proc.status.State = rc.status
 	}
 
 	return nil
@@ -714,45 +714,45 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 	rc.msg.Infof("/status processes...")
 
 	rc.mu.RLock()
-	names := make([]string, 0, len(rc.conns))
-	for name := range rc.conns {
-		names = append(names, name)
+	procs := make([]string, 0, len(rc.procs))
+	for name := range rc.procs {
+		procs = append(procs, name)
 	}
 	rc.mu.RUnlock()
 
 	var grp errgroup.Group
-	for i := range names {
+	for i := range procs {
 		rc.mu.RLock()
-		descr := rc.conns[names[i]]
+		proc := rc.procs[procs[i]]
 		rc.mu.RUnlock()
-		cmd := StatusCmd{Name: descr.name}
+		cmd := StatusCmd{Name: proc.name}
 		grp.Go(func() error {
-			err := SendCmd(ctx, descr.cmd, &cmd)
+			err := SendCmd(ctx, proc.cmd, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send /status to %q: %+v", descr.name, err)
+				rc.msg.Errorf("could not send /status to %q: %+v", proc.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, descr.cmd)
+			ack, err := RecvFrame(ctx, proc.cmd)
 			if err != nil {
-				rc.msg.Errorf("could not receive /status ACK from %q: %+v", descr.name, err)
+				rc.msg.Errorf("could not receive /status ACK from %q: %+v", proc.name, err)
 				return err
 			}
 			switch ack.Type {
 			case FrameCmd:
 				cmd, err := newStatusCmd(ack)
 				if err != nil {
-					rc.msg.Errorf("could not receive /status reply for %q: %+v", descr.name, err)
-					return xerrors.Errorf("could not receive /status reply for %q: %w", descr.name, err)
+					rc.msg.Errorf("could not receive /status reply for %q: %+v", proc.name, err)
+					return xerrors.Errorf("could not receive /status reply for %q: %w", proc.name, err)
 				}
 				rc.mu.Lock()
-				descr.status.State = cmd.Status
+				proc.status.State = cmd.Status
 				rc.mu.Unlock()
-				rc.msg.Infof("received /status = %v for %q", cmd.Status, descr.name)
+				rc.msg.Infof("received /status = %v for %q", cmd.Status, proc.name)
 
 			default:
-				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
 			}
 			return nil
 		})
@@ -768,26 +768,26 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 
 func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 	rc.mu.RLock()
-	names := make([]string, 0, len(rc.conns))
-	for name := range rc.conns {
-		names = append(names, name)
+	procs := make([]string, 0, len(rc.procs))
+	for name := range rc.procs {
+		procs = append(procs, name)
 	}
 	rc.mu.RUnlock()
 
 	var grp errgroup.Group
-	for i := range names {
+	for i := range procs {
 		rc.mu.RLock()
-		descr := rc.conns[names[i]]
+		proc := rc.procs[procs[i]]
 		rc.mu.RUnlock()
-		cmd := StatusCmd{Name: descr.name}
+		cmd := StatusCmd{Name: proc.name}
 		grp.Go(func() error {
-			err := SendCmd(ctx, descr.hbeat, &cmd)
+			err := SendCmd(ctx, proc.hbeat, &cmd)
 			if err != nil {
-				rc.msg.Errorf("could not send /status heartbeat to %s: %+v", descr.name, err)
+				rc.msg.Errorf("could not send /status heartbeat to %s: %+v", proc.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, descr.hbeat)
+			ack, err := RecvFrame(ctx, proc.hbeat)
 			if err != nil {
 				rc.msg.Errorf("could not receive ACK: %v", err)
 				return err
@@ -796,16 +796,16 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 			case FrameCmd:
 				cmd, err := newStatusCmd(ack)
 				if err != nil {
-					rc.msg.Errorf("could not receive /status heartbeat reply for %q: %+v", descr.name, err)
-					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", descr.name, err)
+					rc.msg.Errorf("could not receive /status heartbeat reply for %q: %+v", proc.name, err)
+					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", proc.name, err)
 				}
 				rc.mu.Lock()
-				descr.status.State = cmd.Status
+				proc.status.State = cmd.Status
 				rc.mu.Unlock()
 
 			default:
-				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
-				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
+				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, proc.name)
 			}
 			return nil
 		})
@@ -820,8 +820,8 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 }
 
 func (rc *RunControl) providerOf(p EndPoint) (string, bool) {
-	for _, descr := range rc.conns {
-		for _, oport := range descr.oeps {
+	for _, proc := range rc.procs {
+		for _, oport := range proc.oeps {
 			if oport.Name == p.Name {
 				return oport.Addr, true
 			}
@@ -908,11 +908,11 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 			rc.mu.RLock()
 			data.Status = rc.status.String()
 			data.Timestamp = time.Now().UTC().Format("2006-01-02 15:04:05") + " (UTC)"
-			for _, descr := range rc.conns {
+			for _, proc := range rc.procs {
 				data.Procs = append(data.Procs, struct {
 					Name   string `json:"name"`
 					Status string `json:"status"`
-				}{descr.name, descr.status.State.String()})
+				}{proc.name, proc.status.State.String()})
 			}
 			rc.mu.RUnlock()
 			sort.Slice(data.Procs, func(i, j int) bool {
