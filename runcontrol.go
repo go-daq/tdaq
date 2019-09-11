@@ -47,6 +47,7 @@ type RunControl struct {
 	listening bool
 
 	msgch chan MsgFrame // messages from log server
+	flog  *os.File
 
 	runNbr uint64
 }
@@ -80,11 +81,22 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.srv = srv
 
-	srv, err = net.Listen("tcp", ":0")
+	srv, err = net.Listen("tcp", cfg.Log)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create TCP log server: %w", err)
 	}
 	rc.log = srv
+
+	fname := cfg.LogFile
+	if fname == "" {
+		fname = fmt.Sprintf("runctl-log-%v.txt", time.Now().UTC().Format("2006-01-150405"))
+	}
+
+	f, err := os.Create(fname)
+	if err != nil {
+		return nil, xerrors.Errorf("could not create run-ctl log file %q: %w", fname, err)
+	}
+	rc.flog = f
 
 	if cfg.Web != "" {
 		mux := http.NewServeMux()
@@ -172,6 +184,15 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl log server: %+v", err)
 		}
+		rc.log = nil
+	}
+
+	if rc.flog != nil {
+		err := rc.flog.Close()
+		if err != nil {
+			rc.msg.Errorf("could not close run-ctl log file: %+v", err)
+		}
+		rc.flog = nil
 	}
 
 	if rc.srv != nil {
@@ -407,12 +428,24 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not unmarshal /log frame: %+v", err)
 			}
+			go rc.processLog(msg)
+
 			select {
 			case rc.msgch <- msg:
 			default:
 				// ok to drop messages.
 			}
 		}
+	}
+}
+
+func (rc *RunControl) processLog(msg MsgFrame) {
+	rc.mu.Lock()
+	_, err := rc.flog.Write([]byte(msg.Msg))
+	rc.mu.Unlock()
+
+	if err != nil {
+		rc.msg.Errorf("could not write msg to log file: %q\nerror: %+v", msg.Msg, err)
 	}
 }
 

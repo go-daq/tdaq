@@ -20,12 +20,15 @@ type Process struct {
 
 // RunCtl describes how a TDAQ RunControl process should be configured.
 type RunCtl struct {
-	Name   string    // name of the run-ctl process.
-	Level  log.Level // verbosity level of the run-ctl process.
-	RunCtl string    // address of the TCP run-ctl server
-	Web    string    // address of the HTTP run-ctl server
+	Name   string    // name of the run-ctl process
+	Level  log.Level // verbosity level of the run-ctl process
+	RunCtl string    // address of the TCP run-ctl cmd server
+	Log    string    // address of the TCP run-ctl log server
+	Web    string    // address of the HTTP run-ctl web server
 
 	Interactive bool // enable interactive shell commands for the run-ctl process
+
+	LogFile string // path to logfile for run-ctl log server
 
 	Args []string // additional flag arguments
 }

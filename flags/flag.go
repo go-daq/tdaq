@@ -52,9 +52,12 @@ func NewRunControl() config.RunCtl {
 
 	flag.StringVar(&cmd.Name, "id", "", "name of the tdaq process")
 	flag.StringVar(&lvl, "lvl", "INFO", "msgstream level")
-	flag.StringVar(&cmd.RunCtl, "rc-addr", ":44000", "[addr]:port of run-ctl process")
-	flag.StringVar(&cmd.Web, "web", "", "[addr]:port of run-control web GUI")
+	flag.StringVar(&cmd.RunCtl, "rc-addr", ":44000", "[addr]:port of run-ctl cmd server")
+	flag.StringVar(&cmd.Log, "log-addr", ":44001", "[addr]:port of run-ctl log server")
+	flag.StringVar(&cmd.Web, "web", "", "[addr]:port of run-ctl web server")
 	flag.BoolVar(&cmd.Interactive, "i", false, "enable interactive run-ctl shell")
+
+	flag.StringVar(&cmd.LogFile, "log-file", "", "path to log file for run-ctl log server")
 
 	flag.Parse()
 
