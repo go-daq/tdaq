@@ -38,7 +38,7 @@ type RunControl struct {
 	log net.Listener // log server
 	web *http.Server // web server
 
-	stdout log.WriteSyncer
+	stdout io.Writer
 
 	mu        sync.RWMutex
 	status    fsm.StateKind
@@ -56,13 +56,19 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
-	var out log.WriteSyncer
-	switch stdout := stdout.(type) {
-	case log.WriteSyncer:
-		out = stdout
-	default:
-		out = newSyncWriter(stdout)
+	fname := cfg.LogFile
+	if fname == "" {
+		fname = fmt.Sprintf("runctl-log-%v.txt", time.Now().UTC().Format("2006-01-150405"))
 	}
+
+	flog, err := os.Create(fname)
+	if err != nil {
+		return nil, xerrors.Errorf("could not create run-ctl log file %q: %w", fname, err)
+	}
+
+	stdout = io.MultiWriter(stdout, flog)
+	out := newSyncWriter(stdout)
+
 	rc := &RunControl{
 		quit:      make(chan struct{}),
 		stdout:    out,
@@ -71,6 +77,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		conns:     make(map[net.Conn]descr),
 		listening: true,
 		msgch:     make(chan MsgFrame, 1024),
+		flog:      flog,
 		runNbr:    uint64(time.Now().UTC().Unix()),
 	}
 
@@ -86,17 +93,6 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		return nil, xerrors.Errorf("could not create TCP log server: %w", err)
 	}
 	rc.log = srv
-
-	fname := cfg.LogFile
-	if fname == "" {
-		fname = fmt.Sprintf("runctl-log-%v.txt", time.Now().UTC().Format("2006-01-150405"))
-	}
-
-	f, err := os.Create(fname)
-	if err != nil {
-		return nil, xerrors.Errorf("could not create run-ctl log file %q: %w", fname, err)
-	}
-	rc.flog = f
 
 	if cfg.Web != "" {
 		mux := http.NewServeMux()
@@ -123,7 +119,6 @@ func (rc *RunControl) NumClients() int {
 
 func (rc *RunControl) Run(ctx context.Context) error {
 	rc.msg.Infof("waiting for commands...")
-	defer rc.stdout.Sync()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -441,8 +436,15 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 
 func (rc *RunControl) processLog(msg MsgFrame) {
 	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	select {
+	case <-rc.quit:
+		// we are shutting down...
+		return
+	default:
+	}
+
 	_, err := rc.flog.Write([]byte(msg.Msg))
-	rc.mu.Unlock()
 
 	if err != nil {
 		rc.msg.Errorf("could not write msg to log file: %q\nerror: %+v", msg.Msg, err)

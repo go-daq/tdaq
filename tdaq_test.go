@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -31,13 +33,29 @@ func TestRunControl(t *testing.T) {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
-	addr := ":" + port
+	rcAddr := ":" + port
+
+	port, err = getTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
 	stdout := new(bytes.Buffer)
 
+	fname, err := ioutil.TempFile("", "tdaq-")
+	if err != nil {
+		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+	}
+	fname.Close()
+	defer os.Remove(fname.Name())
+
 	cfg := config.RunCtl{
-		Name:   "run-ctl",
-		Level:  log.LvlDebug,
-		RunCtl: addr,
+		Name:    "run-ctl",
+		Level:   log.LvlDebug,
+		RunCtl:  rcAddr,
+		Web:     webAddr,
+		LogFile: fname.Name(),
 	}
 
 	rc, err := tdaq.NewRunControl(cfg, stdout)
@@ -63,7 +81,7 @@ func TestRunControl(t *testing.T) {
 		cfg := config.Process{
 			Name:   "data-src",
 			Level:  log.LvlInfo,
-			RunCtl: addr,
+			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg)
 		srv.CmdHandle("/config", dev.OnConfig)
@@ -89,7 +107,7 @@ func TestRunControl(t *testing.T) {
 			cfg := config.Process{
 				Name:   name,
 				Level:  log.LvlInfo,
-				RunCtl: addr,
+				RunCtl: rcAddr,
 			}
 			srv := tdaq.New(cfg)
 			srv.CmdHandle("/init", dev.OnInit)

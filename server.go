@@ -489,20 +489,18 @@ func (srv *Server) onLog(ctx Context, req Frame) error {
 	}
 	srv.log = conn
 
-	srv.msg.Sync()
-
 	srv.msg = newMsgStream(srv.name, srv.cfg.Level, srv.log, os.Stdout)
 	return nil
 }
 
 type msgstream struct {
 	lvl  log.Level
-	w    log.WriteSyncer
+	w    io.Writer
 	conn net.Conn
 	n    string
 }
 
-func newMsgStream(name string, lvl log.Level, conn net.Conn, w log.WriteSyncer) log.MsgStream {
+func newMsgStream(name string, lvl log.Level, conn net.Conn, w io.Writer) log.MsgStream {
 	return &msgstream{
 		lvl:  lvl,
 		conn: conn,
@@ -523,13 +521,11 @@ func (msg msgstream) Infof(format string, a ...interface{}) (int, error) {
 
 // Warnf displays a (formated) WARN message
 func (msg msgstream) Warnf(format string, a ...interface{}) (int, error) {
-	defer msg.flush()
 	return msg.Msg(log.LvlWarning, format, a...)
 }
 
 // Errorf displays a (formated) ERR message
 func (msg msgstream) Errorf(format string, a ...interface{}) (int, error) {
-	defer msg.flush()
 	return msg.Msg(log.LvlError, format, a...)
 }
 
@@ -550,12 +546,6 @@ func (msg msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, e
 		Msg:   string(str),
 	})
 	return msg.w.Write(str)
-}
-
-func (msg msgstream) Sync() error { return msg.flush() }
-
-func (msg msgstream) flush() error {
-	return msg.w.Sync()
 }
 
 var (

@@ -5,7 +5,6 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"net"
@@ -486,11 +485,11 @@ func (o *oport) send(data []byte) error {
 
 type syncwriter struct {
 	mu sync.Mutex
-	w  *bufio.Writer
+	w  io.Writer
 }
 
 func newSyncWriter(w io.Writer) *syncwriter {
-	return &syncwriter{w: bufio.NewWriter(w)}
+	return &syncwriter{w: w}
 }
 
 func (w *syncwriter) Write(p []byte) (int, error) {
@@ -498,10 +497,4 @@ func (w *syncwriter) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	w.mu.Unlock()
 	return n, err
-}
-
-func (w *syncwriter) Sync() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.w.Flush()
 }
