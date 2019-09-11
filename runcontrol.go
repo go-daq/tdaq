@@ -29,6 +29,39 @@ type descr struct {
 	status fsm.Status
 	ieps   []EndPoint
 	oeps   []EndPoint
+	cmd    net.Conn
+	hbeat  net.Conn
+}
+
+func (d *descr) close() error {
+	var (
+		err1 error
+		err2 error
+	)
+
+	if d.cmd != nil {
+		err1 = d.cmd.Close()
+		if err1 == nil {
+			d.cmd = nil
+		}
+	}
+
+	if d.hbeat != nil {
+		err2 = d.hbeat.Close()
+		if err2 == nil {
+			d.hbeat = nil
+		}
+	}
+
+	if err1 != nil {
+		return err1
+	}
+
+	if err2 != nil {
+		return err2
+	}
+
+	return nil
 }
 
 type RunControl struct {
@@ -43,7 +76,7 @@ type RunControl struct {
 	mu        sync.RWMutex
 	status    fsm.StateKind
 	msg       log.MsgStream
-	conns     map[net.Conn]descr
+	conns     map[string]*descr
 	listening bool
 
 	msgch chan MsgFrame // messages from log server
@@ -74,7 +107,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		stdout:    out,
 		status:    fsm.UnConf,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
-		conns:     make(map[net.Conn]descr),
+		conns:     make(map[string]*descr),
 		listening: true,
 		msgch:     make(chan MsgFrame, 1024),
 		flog:      flog,
@@ -162,16 +195,16 @@ loop:
 }
 
 func (rc *RunControl) close() {
-	rc.msg.Infof("closing...")
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+	rc.msg.Infof("closing...")
 
-	for conn, descr := range rc.conns {
-		err := conn.Close()
+	for _, descr := range rc.conns {
+		err := descr.close()
 		if err != nil {
-			rc.msg.Errorf("could not close cmd-conn to %q: %+v", descr.name, err)
+			rc.msg.Errorf("could not close proc to %q: %+v", descr.name, err)
 		}
-		delete(rc.conns, conn)
+		delete(rc.conns, descr.name)
 	}
 	rc.conns = nil
 
@@ -357,13 +390,14 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	}
 
 	rc.mu.Lock()
-	rc.conns[conn] = descr{
+	rc.conns[join.Name] = &descr{
 		name: join.Name,
 		status: fsm.Status{
 			State: fsm.UnConf,
 		},
 		ieps: join.InEndPoints,
 		oeps: join.OutEndPoints,
+		cmd:  conn,
 	}
 	rc.mu.Unlock()
 
@@ -455,16 +489,16 @@ func (rc *RunControl) processLog(msg MsgFrame) {
 func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 	var berr []error
 
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		rc.msg.Debugf("sending cmd %v to %q...", cmd, descr.name)
-		err := sendCmd(ctx, conn, cmd, nil)
+		err := sendCmd(ctx, descr.cmd, cmd, nil)
 		if err != nil {
 			rc.msg.Errorf("could not send cmd %v to %q: %v", cmd, descr.name, err)
 			berr = append(berr, err)
 			continue
 		}
 		rc.msg.Debugf("sending cmd %v... [ok]", cmd)
-		ack, err := RecvFrame(ctx, conn)
+		ack, err := RecvFrame(ctx, descr.cmd)
 		if err != nil {
 			rc.msg.Errorf("could not receive %v ACK from %q: %+v", cmd, descr.name, err)
 			berr = append(berr, err)
@@ -521,8 +555,8 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	conns := make([]net.Conn, 0, len(rc.conns))
-	for conn, descr := range rc.conns {
+	names := make([]string, 0, len(rc.conns))
+	for _, descr := range rc.conns {
 		for i := range descr.ieps {
 			iport := &descr.ieps[i]
 			provider, ok := rc.providerOf(*iport)
@@ -531,14 +565,12 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 			}
 			iport.Addr = provider
 		}
-		rc.conns[conn] = descr
-		conns = append(conns, conn)
+		names = append(names, descr.name)
 	}
 
 	var grp errgroup.Group
-	for i := range conns {
-		conn := conns[i]
-		descr := rc.conns[conn]
+	for i := range names {
+		descr := rc.conns[names[i]]
 		cmd := ConfigCmd{
 			Name:         descr.name,
 			InEndPoints:  descr.ieps,
@@ -546,13 +578,13 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 		}
 		grp.Go(func() error {
 			rc.msg.Debugf("sending /config to %q...", descr.name)
-			err := SendCmd(ctx, conn, &cmd)
+			err := SendCmd(ctx, descr.cmd, &cmd)
 			if err != nil {
 				rc.msg.Errorf("could not send /config to %q: %v+", descr.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, conn)
+			ack, err := RecvFrame(ctx, descr.cmd)
 			if err != nil {
 				rc.msg.Errorf("could not receive ACK from %q: %+v", descr.name, err)
 				return err
@@ -579,9 +611,8 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Conf
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		descr.status.State = rc.status
-		rc.conns[conn] = descr
 	}
 
 	return nil
@@ -599,9 +630,8 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Init
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		descr.status.State = rc.status
-		rc.conns[conn] = descr
 	}
 
 	return nil
@@ -619,9 +649,8 @@ func (rc *RunControl) doReset(ctx context.Context) error {
 	}
 
 	rc.status = fsm.UnConf
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		descr.status.State = rc.status
-		rc.conns[conn] = descr
 	}
 
 	return nil
@@ -639,9 +668,8 @@ func (rc *RunControl) doStart(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Running
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		descr.status.State = rc.status
-		rc.conns[conn] = descr
 	}
 
 	return nil
@@ -659,9 +687,8 @@ func (rc *RunControl) doStop(ctx context.Context) error {
 	}
 
 	rc.status = fsm.Stopped
-	for conn, descr := range rc.conns {
+	for _, descr := range rc.conns {
 		descr.status.State = rc.status
-		rc.conns[conn] = descr
 	}
 
 	return nil
@@ -687,27 +714,26 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 	rc.msg.Infof("/status processes...")
 
 	rc.mu.RLock()
-	conns := make([]net.Conn, 0, len(rc.conns))
-	for conn := range rc.conns {
-		conns = append(conns, conn)
+	names := make([]string, 0, len(rc.conns))
+	for name := range rc.conns {
+		names = append(names, name)
 	}
 	rc.mu.RUnlock()
 
 	var grp errgroup.Group
-	for i := range conns {
-		conn := conns[i]
+	for i := range names {
 		rc.mu.RLock()
-		descr := rc.conns[conn]
+		descr := rc.conns[names[i]]
 		rc.mu.RUnlock()
 		cmd := StatusCmd{Name: descr.name}
 		grp.Go(func() error {
-			err := SendCmd(ctx, conn, &cmd)
+			err := SendCmd(ctx, descr.cmd, &cmd)
 			if err != nil {
 				rc.msg.Errorf("could not send /status to %q: %+v", descr.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, conn)
+			ack, err := RecvFrame(ctx, descr.cmd)
 			if err != nil {
 				rc.msg.Errorf("could not receive /status ACK from %q: %+v", descr.name, err)
 				return err
@@ -720,9 +746,7 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 					return xerrors.Errorf("could not receive /status reply for %q: %w", descr.name, err)
 				}
 				rc.mu.Lock()
-				descr := rc.conns[conn]
 				descr.status.State = cmd.Status
-				rc.conns[conn] = descr
 				rc.mu.Unlock()
 				rc.msg.Infof("received /status = %v for %q", cmd.Status, descr.name)
 
@@ -744,27 +768,26 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 
 func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 	rc.mu.RLock()
-	conns := make([]net.Conn, 0, len(rc.conns))
-	for conn := range rc.conns {
-		conns = append(conns, conn)
+	names := make([]string, 0, len(rc.conns))
+	for name := range rc.conns {
+		names = append(names, name)
 	}
 	rc.mu.RUnlock()
 
 	var grp errgroup.Group
-	for i := range conns {
-		conn := conns[i]
+	for i := range names {
 		rc.mu.RLock()
-		descr := rc.conns[conn]
+		descr := rc.conns[names[i]]
 		rc.mu.RUnlock()
 		cmd := StatusCmd{Name: descr.name}
 		grp.Go(func() error {
-			err := SendCmd(ctx, conn, &cmd)
+			err := SendCmd(ctx, descr.hbeat, &cmd)
 			if err != nil {
 				rc.msg.Errorf("could not send /status heartbeat to %s: %+v", descr.name, err)
 				return err
 			}
 
-			ack, err := RecvFrame(ctx, conn)
+			ack, err := RecvFrame(ctx, descr.hbeat)
 			if err != nil {
 				rc.msg.Errorf("could not receive ACK: %v", err)
 				return err
@@ -777,9 +800,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", descr.name, err)
 				}
 				rc.mu.Lock()
-				descr := rc.conns[conn]
 				descr.status.State = cmd.Status
-				rc.conns[conn] = descr
 				rc.mu.Unlock()
 
 			default:
