@@ -20,6 +20,7 @@ type CmdType byte
 const (
 	CmdUnknown CmdType = iota
 	CmdJoin
+	CmdHBeat
 	CmdConfig
 	CmdInit
 	CmdReset
@@ -33,6 +34,7 @@ const (
 var cmdNames = [...][]byte{
 	CmdUnknown: []byte("/unknown"),
 	CmdJoin:    []byte("/join"),
+	CmdHBeat:   []byte("/hbeat"),
 	CmdConfig:  []byte("/config"),
 	CmdInit:    []byte("/init"),
 	CmdReset:   []byte("/reset"),
@@ -59,7 +61,7 @@ type Cmd struct {
 	Body []byte
 }
 
-func CmdFrom(frame Frame) (Cmd, error) {
+func cmdFrom(frame Frame) (Cmd, error) {
 	if frame.Type != FrameCmd {
 		return Cmd{}, xerrors.Errorf("invalid frame type %v", frame.Type)
 	}
@@ -68,34 +70,6 @@ func CmdFrom(frame Frame) (Cmd, error) {
 		Body: frame.Body[1:],
 	}
 	return cmd, nil
-}
-
-func (raw Cmd) cmd() (cmd Cmder, err error) {
-	switch raw.Type {
-	case CmdJoin:
-		var c JoinCmd
-		err = c.UnmarshalTDAQ(raw.Body[1:])
-		cmd = &c
-	case CmdInit:
-		panic("not implemented")
-	case CmdConfig:
-		panic("not implemented")
-	case CmdReset:
-		panic("not implemented")
-	case CmdStart:
-		panic("not implemented")
-	case CmdStop:
-		panic("not implemented")
-	case CmdTerm:
-		panic("not implemented")
-	case CmdStatus:
-		panic("not implemented")
-	case CmdLog:
-		panic("not implemented")
-	default:
-		return nil, xerrors.Errorf("invalid cmd type %q", raw.Type)
-	}
-	return cmd, err
 }
 
 func SendCmd(ctx context.Context, w io.Writer, cmd Cmder) error {
@@ -127,9 +101,27 @@ func recvCmd(ctx context.Context, r io.Reader) (cmd Cmd, err error) {
 
 type JoinCmd struct {
 	Name         string
-	HBeat        string
 	InEndPoints  []EndPoint
 	OutEndPoints []EndPoint
+}
+
+func newJoinCmd(frame Frame) (JoinCmd, error) {
+	var (
+		cmd JoinCmd
+		err error
+	)
+
+	raw, err := cmdFrom(frame)
+	if err != nil {
+		return cmd, xerrors.Errorf("not a /join cmd: %w", err)
+	}
+
+	if raw.Type != CmdJoin {
+		return cmd, xerrors.Errorf("not a /join cmd")
+	}
+
+	err = cmd.UnmarshalTDAQ(raw.Body)
+	return cmd, err
 }
 
 func (cmd JoinCmd) CmdType() CmdType { return CmdJoin }
@@ -138,7 +130,6 @@ func (cmd JoinCmd) MarshalTDAQ() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
-	enc.WriteStr(cmd.HBeat)
 
 	enc.WriteI32(int32(len(cmd.InEndPoints)))
 	for _, ep := range cmd.InEndPoints {
@@ -160,7 +151,6 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 
 	cmd.Name = dec.ReadStr()
-	cmd.HBeat = dec.ReadStr()
 	n := int(dec.ReadI32())
 	cmd.InEndPoints = make([]EndPoint, n)
 	for i := range cmd.InEndPoints {
@@ -182,6 +172,47 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	return dec.err
 }
 
+type HBeatCmd struct {
+	Name string // name of the TDAQ process
+	Addr string // address of the heartbeat server
+}
+
+func newHBeatCmd(frame Frame) (HBeatCmd, error) {
+	var (
+		cmd HBeatCmd
+		err error
+	)
+
+	raw, err := cmdFrom(frame)
+	if err != nil {
+		return cmd, xerrors.Errorf("not a /hbeat cmd: %w", err)
+	}
+
+	if raw.Type != CmdHBeat {
+		return cmd, xerrors.Errorf("not a /hbeat cmd")
+	}
+
+	err = cmd.UnmarshalTDAQ(raw.Body)
+	return cmd, err
+}
+
+func (cmd HBeatCmd) CmdType() CmdType { return CmdHBeat }
+
+func (cmd HBeatCmd) MarshalTDAQ() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf)
+	enc.WriteStr(cmd.Name)
+	enc.WriteStr(cmd.Addr)
+	return buf.Bytes(), enc.err
+}
+
+func (cmd *HBeatCmd) UnmarshalTDAQ(p []byte) error {
+	dec := NewDecoder(bytes.NewReader(p))
+	cmd.Name = dec.ReadStr()
+	cmd.Addr = dec.ReadStr()
+	return dec.err
+}
+
 type ConfigCmd struct {
 	Name         string
 	InEndPoints  []EndPoint
@@ -190,21 +221,21 @@ type ConfigCmd struct {
 
 func newConfigCmd(frame Frame) (ConfigCmd, error) {
 	var (
-		cfg ConfigCmd
+		cmd ConfigCmd
 		err error
 	)
 
-	raw, err := CmdFrom(frame)
+	raw, err := cmdFrom(frame)
 	if err != nil {
-		return cfg, xerrors.Errorf("not a /config cmd: %w", err)
+		return cmd, xerrors.Errorf("not a /config cmd: %w", err)
 	}
 
 	if raw.Type != CmdConfig {
-		return cfg, xerrors.Errorf("not a /config cmd")
+		return cmd, xerrors.Errorf("not a /config cmd")
 	}
 
-	err = cfg.UnmarshalTDAQ(raw.Body)
-	return cfg, err
+	err = cmd.UnmarshalTDAQ(raw.Body)
+	return cmd, err
 }
 
 func (cmd ConfigCmd) CmdType() CmdType { return CmdConfig }
@@ -266,7 +297,7 @@ func newStatusCmd(frame Frame) (StatusCmd, error) {
 		err error
 	)
 
-	raw, err := CmdFrom(frame)
+	raw, err := cmdFrom(frame)
 	if err != nil {
 		return cmd, xerrors.Errorf("not a /status cmd: %w", err)
 	}
@@ -307,7 +338,7 @@ func newLogCmd(frame Frame) (LogCmd, error) {
 		err error
 	)
 
-	raw, err := CmdFrom(frame)
+	raw, err := cmdFrom(frame)
 	if err != nil {
 		return cmd, xerrors.Errorf("not a /log cmd: %w", err)
 	}
@@ -342,6 +373,14 @@ var (
 	_ Marshaler   = (*JoinCmd)(nil)
 	_ Unmarshaler = (*JoinCmd)(nil)
 
+	_ Cmder       = (*HBeatCmd)(nil)
+	_ Marshaler   = (*HBeatCmd)(nil)
+	_ Unmarshaler = (*HBeatCmd)(nil)
+
+	_ Cmder       = (*LogCmd)(nil)
+	_ Marshaler   = (*LogCmd)(nil)
+	_ Unmarshaler = (*LogCmd)(nil)
+
 	_ Cmder       = (*ConfigCmd)(nil)
 	_ Marshaler   = (*ConfigCmd)(nil)
 	_ Unmarshaler = (*ConfigCmd)(nil)
@@ -349,8 +388,4 @@ var (
 	_ Cmder       = (*StatusCmd)(nil)
 	_ Marshaler   = (*StatusCmd)(nil)
 	_ Unmarshaler = (*StatusCmd)(nil)
-
-	_ Cmder       = (*LogCmd)(nil)
-	_ Marshaler   = (*LogCmd)(nil)
-	_ Unmarshaler = (*LogCmd)(nil)
 )
