@@ -12,12 +12,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
+	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -32,15 +34,19 @@ type descr struct {
 type RunControl struct {
 	quit chan struct{}
 
-	srv net.Listener
-	web *http.Server
+	srv net.Listener // ctl server
+	log net.Listener // log server
+	web *http.Server // web server
 
 	stdout log.WriteSyncer
 
 	mu        sync.RWMutex
+	status    fsm.StateKind
 	msg       log.MsgStream
 	conns     map[net.Conn]descr
 	listening bool
+
+	msgch chan MsgFrame // messages from log server
 
 	runNbr uint64
 }
@@ -59,9 +65,11 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	rc := &RunControl{
 		quit:      make(chan struct{}),
 		stdout:    out,
+		status:    fsm.UnConf,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
 		conns:     make(map[net.Conn]descr),
 		listening: true,
+		msgch:     make(chan MsgFrame, 1024),
 		runNbr:    uint64(time.Now().UTC().Unix()),
 	}
 
@@ -72,10 +80,18 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.srv = srv
 
+	srv, err = net.Listen("tcp", ":0")
+	if err != nil {
+		return nil, xerrors.Errorf("could not create TCP log server: %w", err)
+	}
+	rc.log = srv
+
 	if cfg.Web != "" {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", rc.webHome)
 		mux.HandleFunc("/cmd", rc.webCmd)
+		mux.Handle("/status", websocket.Handler(rc.webStatus))
+		mux.Handle("/msg", websocket.Handler(rc.webMsg))
 		rc.web = &http.Server{
 			Addr:    cfg.Web,
 			Handler: mux,
@@ -99,10 +115,14 @@ func (rc *RunControl) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go rc.serve(ctx)
-	go rc.webServe(ctx)
+	go rc.serveLog(ctx)
+	go rc.serveCtl(ctx)
+	go rc.serveWeb(ctx)
 
 	var err error
+
+	hbeat := time.NewTicker(5 * time.Second)
+	defer hbeat.Stop()
 
 loop:
 	for {
@@ -116,6 +136,12 @@ loop:
 			close(rc.quit)
 			err = ctx.Err()
 			break loop
+
+		case <-hbeat.C:
+			err := rc.doHeartbeat(ctx)
+			if err != nil {
+				rc.msg.Warnf("could not process /status heartbeat: %+v", err)
+			}
 		}
 	}
 
@@ -139,10 +165,21 @@ func (rc *RunControl) close() {
 		}
 		delete(rc.conns, conn)
 	}
+	rc.conns = nil
 
-	err := rc.srv.Close()
-	if err != nil {
-		rc.msg.Errorf("could not close run-ctl cmd server: %+v", err)
+	if rc.log != nil {
+		err := rc.log.Close()
+		if err != nil {
+			rc.msg.Errorf("could not close run-ctl log server: %+v", err)
+		}
+	}
+
+	if rc.srv != nil {
+		err := rc.srv.Close()
+		if err != nil {
+			rc.msg.Errorf("could not close run-ctl cmd server: %+v", err)
+		}
+		rc.srv = nil
 	}
 
 	if rc.web != nil {
@@ -152,10 +189,11 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl web server: %+v", err)
 		}
+		rc.web = nil
 	}
 }
 
-func (rc *RunControl) serve(ctx context.Context) {
+func (rc *RunControl) serveCtl(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -180,12 +218,42 @@ func (rc *RunControl) serve(ctx context.Context) {
 				}
 				continue
 			}
-			go rc.handleConn(ctx, conn)
+			go rc.handleCtlConn(ctx, conn)
 		}
 	}
 }
 
-func (rc *RunControl) webServe(ctx context.Context) {
+func (rc *RunControl) serveLog(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case <-ctx.Done():
+			err := ctx.Err()
+			if err != nil {
+				rc.msg.Errorf("context errored during run-ctl serve: %v", err)
+			}
+			return
+		default:
+			conn, err := rc.log.Accept()
+			if err != nil {
+				select {
+				case <-rc.quit:
+					// ok, we are shutting down.
+				default:
+					rc.msg.Errorf("error accepting connection: %v", err)
+				}
+				continue
+			}
+			go rc.handleLogConn(ctx, conn)
+		}
+	}
+}
+
+func (rc *RunControl) serveWeb(ctx context.Context) {
 	if rc.web == nil {
 		return
 	}
@@ -208,7 +276,7 @@ func (rc *RunControl) webServe(ctx context.Context) {
 	}
 }
 
-func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
+func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	setupTCPConn(conn.(*net.TCPConn))
 
 	req, err := RecvFrame(ctx, conn)
@@ -282,12 +350,73 @@ func (rc *RunControl) handleConn(ctx context.Context, conn net.Conn) {
 	}
 	rc.mu.Unlock()
 
+	err = SendCmd(ctx, conn, &LogCmd{Name: join.Name, Addr: rc.log.Addr().String()})
+	if err != nil {
+		rc.msg.Errorf("could not send /log cmd to %q: %+v", join.Name, err)
+	}
+
+	ack, err := RecvFrame(ctx, conn)
+	if err != nil {
+		rc.msg.Errorf("could not receive /log cmd ack from %q: %v", join.Name, err)
+		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
+		return
+	}
+
+	switch ack.Type {
+	case FrameOK:
+		return // ok
+	case FrameErr:
+		rc.msg.Errorf("received error /log-ack frame from conn %q: %s", join.Name, string(ack.Body))
+		return
+	default:
+		rc.msg.Errorf("received invalid /log-ack frame from conn %q: %#v", join.Name, ack)
+		return
+	}
+}
+
+func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
+	setupTCPConn(conn.(*net.TCPConn))
+	defer conn.Close()
+
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case <-ctx.Done():
+			return
+		default:
+			frame, err := RecvFrame(ctx, conn)
+			if err != nil {
+				select {
+				case <-rc.quit:
+					// ok, we're shutting down.
+					return
+				default:
+				}
+				rc.msg.Errorf("could not receive /log frame: %+v", err)
+				var nerr net.Error
+				if xerrors.Is(err, nerr); nerr != nil && !nerr.Temporary() {
+					return
+				}
+				if xerrors.Is(err, io.EOF) {
+					return
+				}
+			}
+			var msg MsgFrame
+			err = msg.UnmarshalTDAQ(frame.Body)
+			if err != nil {
+				rc.msg.Errorf("could not unmarshal /log frame: %+v", err)
+			}
+			select {
+			case rc.msgch <- msg:
+			default:
+				// ok to drop messages.
+			}
+		}
+	}
 }
 
 func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-
 	var berr []error
 
 	for conn, descr := range rc.conns {
@@ -408,38 +537,111 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 
 	err := grp.Wait()
 	if err != nil {
+		rc.status = fsm.Error
 		return xerrors.Errorf("failed to run errgroup: %w", err)
+	}
+
+	rc.status = fsm.Conf
+	for conn, descr := range rc.conns {
+		descr.status.State = rc.status
+		rc.conns[conn] = descr
 	}
 
 	return nil
 }
 
 func (rc *RunControl) doInit(ctx context.Context) error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.msg.Infof("/init processes...")
-	return rc.broadcast(ctx, CmdInit)
+
+	err := rc.broadcast(ctx, CmdInit)
+	if err != nil {
+		rc.status = fsm.Error
+		return err
+	}
+
+	rc.status = fsm.Init
+	for conn, descr := range rc.conns {
+		descr.status.State = rc.status
+		rc.conns[conn] = descr
+	}
+
+	return nil
 }
 
 func (rc *RunControl) doReset(ctx context.Context) error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.msg.Infof("/reset processes...")
-	return rc.broadcast(ctx, CmdReset)
+
+	err := rc.broadcast(ctx, CmdReset)
+	if err != nil {
+		rc.status = fsm.Error
+		return err
+	}
+
+	rc.status = fsm.UnConf
+	for conn, descr := range rc.conns {
+		descr.status.State = rc.status
+		rc.conns[conn] = descr
+	}
+
+	return nil
 }
 
 func (rc *RunControl) doStart(ctx context.Context) error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.msg.Infof("/start processes...")
-	return rc.broadcast(ctx, CmdStart)
+
+	err := rc.broadcast(ctx, CmdStart)
+	if err != nil {
+		rc.status = fsm.Error
+		return err
+	}
+
+	rc.status = fsm.Running
+	for conn, descr := range rc.conns {
+		descr.status.State = rc.status
+		rc.conns[conn] = descr
+	}
+
+	return nil
 }
 
 func (rc *RunControl) doStop(ctx context.Context) error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.msg.Infof("/stop processes...")
-	return rc.broadcast(ctx, CmdStop)
+
+	err := rc.broadcast(ctx, CmdStop)
+	if err != nil {
+		rc.status = fsm.Error
+		return err
+	}
+
+	rc.status = fsm.Stopped
+	for conn, descr := range rc.conns {
+		descr.status.State = rc.status
+		rc.conns[conn] = descr
+	}
+
+	return nil
 }
 
 func (rc *RunControl) doTerm(ctx context.Context) error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.msg.Infof("/term processes...")
+
 	err := rc.broadcast(ctx, CmdTerm)
 	if err != nil {
+		rc.status = fsm.Error
 		return err
 	}
+
+	rc.status = fsm.Exiting
 	close(rc.quit)
 	return nil
 }
@@ -457,7 +659,9 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 	var grp errgroup.Group
 	for i := range conns {
 		conn := conns[i]
+		rc.mu.RLock()
 		descr := rc.conns[conn]
+		rc.mu.RUnlock()
 		cmd := StatusCmd{Name: descr.name}
 		grp.Go(func() error {
 			err := SendCmd(ctx, conn, &cmd)
@@ -501,6 +705,62 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 	return nil
 }
 
+func (rc *RunControl) doHeartbeat(ctx context.Context) error {
+	rc.mu.RLock()
+	conns := make([]net.Conn, 0, len(rc.conns))
+	for conn := range rc.conns {
+		conns = append(conns, conn)
+	}
+	rc.mu.RUnlock()
+
+	var grp errgroup.Group
+	for i := range conns {
+		conn := conns[i]
+		rc.mu.RLock()
+		descr := rc.conns[conn]
+		rc.mu.RUnlock()
+		cmd := StatusCmd{Name: descr.name}
+		grp.Go(func() error {
+			err := SendCmd(ctx, conn, &cmd)
+			if err != nil {
+				rc.msg.Errorf("could not send /status heartbeat to %s: %v", descr.name, err)
+				return err
+			}
+
+			ack, err := RecvFrame(ctx, conn)
+			if err != nil {
+				rc.msg.Errorf("could not receive ACK: %v", err)
+				return err
+			}
+			switch ack.Type {
+			case FrameCmd:
+				cmd, err := newStatusCmd(ack)
+				if err != nil {
+					rc.msg.Errorf("could not receive /status heartbeat reply for %q: %+v", descr.name, err)
+					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", err)
+				}
+				rc.mu.Lock()
+				descr := rc.conns[conn]
+				descr.status.State = cmd.Status
+				rc.conns[conn] = descr
+				rc.mu.Unlock()
+
+			default:
+				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, descr.name)
+				return xerrors.Errorf("received invalid frame type %v", ack.Type)
+			}
+			return nil
+		})
+	}
+
+	err := grp.Wait()
+	if err != nil {
+		return xerrors.Errorf("failed to run /status heartbeat errgroup: %w", err)
+	}
+
+	return nil
+}
+
 func (rc *RunControl) providerOf(p EndPoint) (string, bool) {
 	for _, descr := range rc.conns {
 		for _, oport := range descr.oeps {
@@ -529,6 +789,115 @@ func (rc *RunControl) webHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(500 << 20)
+	if err != nil {
+		rc.msg.Errorf("could not parse multipart form: %+v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+
+	cmd := r.PostFormValue("cmd")
+	switch cmd {
+	case "/config":
+		err = rc.doConfig(ctx)
+	case "/init":
+		err = rc.doInit(ctx)
+	case "/start":
+		err = rc.doStart(ctx)
+	case "/stop":
+		err = rc.doStop(ctx)
+	case "/reset":
+		err = rc.doReset(ctx)
+	case "/term":
+		err = rc.doTerm(ctx)
+	case "/status":
+		err = rc.doStatus(ctx)
+	default:
+		rc.msg.Errorf("received invalid cmd %q over web-gui", cmd)
+		err = xerrors.Errorf("received invalid cmd %q", cmd)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		rc.msg.Errorf("could not run cmd %q: %+v", cmd, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	return
+}
+
+func (rc *RunControl) webStatus(ws *websocket.Conn) {
+	tick := time.NewTicker(1 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case <-tick.C:
+			var data struct {
+				Status string `json:"status"`
+				Procs  []struct {
+					Name   string `json:"name"`
+					Status string `json:"status"`
+				} `json:"procs"`
+				Timestamp string `json:"timestamp"`
+			}
+			rc.mu.RLock()
+			data.Status = rc.status.String()
+			data.Timestamp = time.Now().UTC().Format("2006-01-02 15:04:05") + " (UTC)"
+			for _, descr := range rc.conns {
+				data.Procs = append(data.Procs, struct {
+					Name   string `json:"name"`
+					Status string `json:"status"`
+				}{descr.name, descr.status.State.String()})
+			}
+			rc.mu.RUnlock()
+			sort.Slice(data.Procs, func(i, j int) bool {
+				return data.Procs[i].Name < data.Procs[j].Name
+			})
+			err := websocket.JSON.Send(ws, data)
+			if err != nil {
+				rc.msg.Errorf("could not send /status report to websocket client: %+v", err)
+				var nerr net.Error
+				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (rc *RunControl) webMsg(ws *websocket.Conn) {
+	for {
+		select {
+		case <-rc.quit:
+			return
+		case msg := <-rc.msgch:
+			var data struct {
+				Name      string `json:"name"`
+				Level     string `json:"level"`
+				Msg       string `json:"msg"`
+				Timestamp string `json:"timestamp"`
+			}
+			data.Name = msg.Name
+			data.Level = msg.Level.String()
+			data.Msg = msg.Msg
+			data.Timestamp = time.Now().UTC().Format("2006-01-02 15:04:05") + " (UTC)"
+			err := websocket.JSON.Send(ws, data)
+			if err != nil {
+				rc.msg.Errorf("could not send /msg report to websocket client: %+v", err)
+				var nerr net.Error
+				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+					return
+				}
+			}
+		}
+	}
 }
 
 const webHomePage = `<html>
@@ -564,6 +933,11 @@ const webHomePage = `<html>
 		cursor:pointer;
 		-webkit-border-radius: 5px;
 	}
+	.msg-log {
+		color: black;
+		text-align: left;
+		font-family: monospace;
+	}
 
 	.loader {
 		border: 16px solid #f3f3f3;
@@ -589,6 +963,75 @@ const webHomePage = `<html>
 
 <script type="text/javascript">
 	"use strict"
+	
+	var statusChan = null;
+	var msgChan    = null;
+
+	window.onload = function() {
+		statusChan = new WebSocket("ws://"+location.host+"/status");
+		
+		statusChan.onmessage = function(event) {
+			var data = JSON.parse(event.data);
+			//console.log("data: "+JSON.stringify(data));
+			updateStatus(data);
+		};
+
+		msgChan = new WebSocket("ws://"+location.host+"/msg");
+		
+		msgChan.onmessage = function(event) {
+			var data = JSON.parse(event.data);
+			//console.log("data: "+JSON.stringify(data));
+			updateMsg(data);
+		};
+	};
+
+	function updateStatus(data) {
+		document.getElementById("rc-status").innerHTML = data.status;
+		document.getElementById("rc-status-update").innerHTML = data.timestamp;
+
+		var procs = document.getElementById("rc-procs-status");
+		procs.innerHTML = "";
+		if (data.procs != null) {
+			data.procs.forEach(function(value) {
+				var node = document.createElement("tr");
+				node.innerHTML = "<th class=\"msg-log\">" + value.name +":</th>" +
+					"<th class=\"msg-log\">"+value.status+"</th>";
+				procs.appendChild(node);
+			});
+		}
+	};
+
+	function updateMsg(data) {
+		var msgs = document.getElementById("rc-msg-log");
+		msgs.innerText = msgs.innerText + data.timestamp + ": " + data.msg;
+	};
+
+	function cmdConfig() { sendCmd("/config"); };
+	function cmdInit()   { sendCmd("/init"); };
+	function cmdStart()  { sendCmd("/start"); };
+	function cmdStop()   { sendCmd("/stop"); };
+	function cmdReset()  { sendCmd("/reset"); };
+
+	function cmdTerm()   { sendCmd("/term"); }; // FIXME(sbinet): add confirmation dialog
+
+	function sendCmd(name) {
+		var data = new FormData();
+		data.append("cmd", name);
+		$.ajax({
+			url: "/cmd",
+			method: "POST",
+			data: data,
+			processData: false,
+			contentType: false,
+			success: function(data, status) {
+				// FIXME(sbinet): report?
+			},
+			error: function(e) {
+				alert("could not send command ["+name+"]:\n"+e.responseText);
+			}
+		});
+	};
+
 </script>
 </head>
 <body>
@@ -600,16 +1043,51 @@ const webHomePage = `<html>
 	</div>
 	<div class="w3-bar-item">
 
-	<div>
-	</div>
-	<br>
+		<div>
+			<table>
+				<tbody>
+					<tr>
+						<th class="msg-log">RunControl Status:</th>
+						<th><div id="rc-status" class="msg-log">N/A</div></th>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+		<br>
 
+		<input type="button" onclick="cmdConfig()" value="Config">
+		<input type="button" onclick="cmdInit()"   value="Init">
+		<input type="button" onclick="cmdStart()"  value="Start">
+		<input type="button" onclick="cmdStop()"   value="Stop">
+		<input type="button" onclick="cmdReset()"  value="Reset">
+
+		<br>
+		<br>
+
+		<div>
+			<h4> TDAQ Processes:</h4>
+			<table>
+				<tbody id="rc-procs-status">
+				</tbody>
+			</table>
+		</div>
+		<br>
+
+		<input type="button" onclick="cmdTerm()"  value="Terminate">
+		<br>
+
+		<span>---</span>
+		Last status update:<br><span id="rc-status-update" class="msg-log">N/A</span><br>
+		<br>
 	</div>
 </div>
 
 <!-- Page Content -->
 <div style="margin-left:25%; height:100%" class="w3-grey" id="app-container">
 	<div class="w3-container w3-content w3-cell w3-cell-middle w3-cell-row w3-center w3-justify w3-grey" style="width:100%" id="app-display">
+		<div>
+			<pre id="rc-msg-log" class="msg-log"></pre>
+		</div>
 	</div>
 </div>
 

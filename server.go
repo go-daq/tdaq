@@ -6,9 +6,11 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,8 +24,10 @@ import (
 type Server struct {
 	rc   string // run-ctl address:port
 	name string
+	cfg  config.Process
 
 	rctl net.Conn
+	log  net.Conn
 
 	mu   sync.RWMutex
 	msg  log.MsgStream
@@ -48,6 +52,7 @@ func New(cfg config.Process) *Server {
 	srv := &Server{
 		rc:   cfg.RunCtl,
 		name: cfg.Name,
+		cfg:  cfg,
 		msg:  log.NewMsgStream(cfg.Name, cfg.Level, os.Stdout),
 		cmgr: newCmdMgr(
 			"/join",
@@ -473,6 +478,20 @@ func (srv *Server) onLog(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
+	cmd, err := newLogCmd(req)
+	if err != nil {
+		return xerrors.Errorf("%s: received an invalid /log cmd: %w", srv.name, err)
+	}
+
+	conn, err := net.Dial("tcp", cmd.Addr)
+	if err != nil {
+		return xerrors.Errorf("%s: could not connect to log server %q: %w", srv.name, cmd.Addr, err)
+	}
+	srv.log = conn
+
+	srv.msg.Sync()
+
+	srv.msg = newMsgStream(srv.name, srv.cfg.Level, srv.log, os.Stdout)
 	return nil
 }
 
