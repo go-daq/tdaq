@@ -297,6 +297,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	default:
 		srv.msg.Errorf("invalid cmd %q", name)
+		return
 	}
 
 	srv.setNextState(next)
