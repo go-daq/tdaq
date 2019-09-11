@@ -29,7 +29,8 @@ func TestRunControl(t *testing.T) {
 	t.Parallel()
 
 	const (
-		lvl = log.LvlDebug
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlInfo
 	)
 
 	port, err := getTCPPort()
@@ -64,7 +65,7 @@ func TestRunControl(t *testing.T) {
 
 	cfg := config.RunCtl{
 		Name:    "run-ctl",
-		Level:   lvl,
+		Level:   rclvl,
 		RunCtl:  rcAddr,
 		Web:     webAddr,
 		LogFile: fname.Name(),
@@ -92,7 +93,7 @@ func TestRunControl(t *testing.T) {
 
 		cfg := config.Process{
 			Name:   "data-src",
-			Level:  lvl,
+			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg)
@@ -118,7 +119,7 @@ func TestRunControl(t *testing.T) {
 
 			cfg := config.Process{
 				Name:   name,
-				Level:  lvl,
+				Level:  proclvl,
 				RunCtl: rcAddr,
 			}
 			srv := tdaq.New(cfg)
