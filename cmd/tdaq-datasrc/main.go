@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/go-daq/tdaq"
@@ -22,7 +23,7 @@ func main() {
 		seed: 1234,
 	}
 
-	srv := tdaq.New(cmd)
+	srv := tdaq.New(cmd, os.Stdout)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)

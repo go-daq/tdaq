@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/flags"
@@ -17,7 +18,7 @@ func main() {
 	cmd := flags.New()
 
 	dev := device{}
-	srv := tdaq.New(cmd)
+	srv := tdaq.New(cmd, os.Stdout)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/reset", dev.OnReset)

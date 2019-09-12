@@ -49,12 +49,16 @@ type Server struct {
 	quit chan struct{} // term channel
 }
 
-func New(cfg config.Process) *Server {
+func New(cfg config.Process, stdout io.Writer) *Server {
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+
 	srv := &Server{
 		rc:   cfg.RunCtl,
 		name: cfg.Name,
 		cfg:  cfg,
-		msg:  newMsgStream(cfg.Name, cfg.Level, os.Stdout),
+		msg:  newMsgStream(cfg.Name, cfg.Level, stdout),
 		cmgr: newCmdMgr(
 			"/config", "/init", "/reset", "/start", "/stop",
 			"/term",

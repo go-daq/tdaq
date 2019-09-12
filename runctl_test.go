@@ -91,7 +91,7 @@ func TestRunControlAPI(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg)
+		srv := tdaq.New(cfg, ioutil.Discard)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -117,7 +117,7 @@ func TestRunControlAPI(t *testing.T) {
 				Level:  proclvl,
 				RunCtl: rcAddr,
 			}
-			srv := tdaq.New(cfg)
+			srv := tdaq.New(cfg, ioutil.Discard)
 			srv.CmdHandle("/init", dev.OnInit)
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)
