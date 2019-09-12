@@ -64,13 +64,19 @@ func (p *proc) close() error {
 	return nil
 }
 
+type websrv interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
+}
+
 type RunControl struct {
 	quit chan struct{}
+	cfg  config.RunCtl
 
 	srv   net.Listener // ctl server
 	hbeat net.Listener // hbeat server
 	log   net.Listener // log server
-	web   *http.Server // web server
+	web   websrv       // web server
 
 	stdout io.Writer
 
@@ -105,6 +111,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 
 	rc := &RunControl{
 		quit:      make(chan struct{}),
+		cfg:       cfg,
 		stdout:    out,
 		status:    fsm.UnConf,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
@@ -212,7 +219,6 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl log server: %+v", err)
 		}
-		rc.log = nil
 	}
 
 	if rc.flog != nil {
@@ -220,7 +226,6 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl log file: %+v", err)
 		}
-		rc.flog = nil
 	}
 
 	if rc.hbeat != nil {
@@ -228,7 +233,6 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl heartbeat server: %+v", err)
 		}
-		rc.hbeat = nil
 	}
 
 	if rc.srv != nil {
@@ -236,7 +240,6 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl cmd server: %+v", err)
 		}
-		rc.srv = nil
 	}
 
 	if rc.web != nil {
@@ -246,7 +249,6 @@ func (rc *RunControl) close() {
 		if err != nil {
 			rc.msg.Errorf("could not close run-ctl web server: %+v", err)
 		}
-		rc.web = nil
 	}
 }
 
@@ -347,7 +349,7 @@ func (rc *RunControl) serveWeb(ctx context.Context) {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	rc.msg.Infof("starting web run-ctl server on %q...", rc.web.Addr)
+	rc.msg.Infof("starting web run-ctl server on %q...", rc.cfg.Web)
 
 	err := rc.web.ListenAndServe()
 	if err != nil {
