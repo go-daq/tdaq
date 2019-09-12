@@ -82,8 +82,8 @@ func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
 		err = rc.doStop(ctx)
 	case "/reset":
 		err = rc.doReset(ctx)
-	case "/term":
-		err = rc.doTerm(ctx)
+	case "/quit":
+		err = rc.doQuit(ctx)
 	case "/status":
 		err = rc.doStatus(ctx)
 	default:
@@ -284,7 +284,7 @@ const webHomePage = `<html>
 	function cmdStop()   { sendCmd("/stop"); };
 	function cmdReset()  { sendCmd("/reset"); };
 
-	function cmdTerm()   { sendCmd("/term"); }; // FIXME(sbinet): add confirmation dialog
+	function cmdQuit()   { sendCmd("/quit"); }; // FIXME(sbinet): add confirmation dialog
 
 	function sendCmd(name) {
 		var data = new FormData();
@@ -345,7 +345,7 @@ const webHomePage = `<html>
 		</div>
 		<br>
 
-		<input type="button" onclick="cmdTerm()"  value="Terminate">
+		<input type="button" onclick="cmdQuit()"  value="Quit">
 		<br>
 
 		<span>---</span>

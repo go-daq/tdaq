@@ -55,7 +55,7 @@ func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 - /start  -> start a new run
 - /stop   -> stop current run
 - /reset  -> reset tdaq processes
-- /term   -> terminate tdaq processes
+- /quit   -> terminate tdaq processes (and quit)
 
 `)
 
@@ -71,7 +71,7 @@ func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 			select {
 			case <-quit:
 			default:
-				go rc.Do(ctx, tdaq.CmdTerm)
+				go rc.Do(ctx, tdaq.CmdQuit)
 			}
 		}()
 
@@ -126,11 +126,11 @@ func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 					log.Errorf("could not run /stop: %+v", err)
 					continue
 				}
-			case "/term", "/quit":
+			case "/quit":
 				term.AppendHistory(o)
-				err = rc.Do(ctx, tdaq.CmdTerm)
+				err = rc.Do(ctx, tdaq.CmdQuit)
 				if err != nil {
-					log.Errorf("could not run /term: %+v", err)
+					log.Errorf("could not run /quit: %+v", err)
 					continue
 				}
 				close(quit)
@@ -166,7 +166,7 @@ func shellCompleter(line string, pos int) (prefix string, completions []string, 
 	cmds := []string{
 		"/config", "/init", "/reset",
 		"/start", "/stop",
-		"/term", "/quit",
+		"/quit",
 		"/status",
 	}
 

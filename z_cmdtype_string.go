@@ -16,12 +16,12 @@ func _() {
 	_ = x[CmdReset-5]
 	_ = x[CmdStart-6]
 	_ = x[CmdStop-7]
-	_ = x[CmdTerm-8]
+	_ = x[CmdQuit-8]
 	_ = x[CmdStatus-9]
 	_ = x[CmdLog-10]
 }
 
-const _CmdType_name = "CmdUnknownCmdJoinCmdHBeatCmdConfigCmdInitCmdResetCmdStartCmdStopCmdTermCmdStatusCmdLog"
+const _CmdType_name = "CmdUnknownCmdJoinCmdHBeatCmdConfigCmdInitCmdResetCmdStartCmdStopCmdQuitCmdStatusCmdLog"
 
 var _CmdType_index = [...]uint8{0, 10, 17, 25, 34, 41, 49, 57, 64, 71, 80, 86}
 

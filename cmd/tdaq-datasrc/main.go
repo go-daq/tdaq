@@ -29,7 +29,7 @@ func main() {
 	srv.CmdHandle("/reset", dev.OnReset)
 	srv.CmdHandle("/start", dev.OnStart)
 	srv.CmdHandle("/stop", dev.OnStop)
-	srv.CmdHandle("/term", dev.OnTerminate)
+	srv.CmdHandle("/quit", dev.OnQuit)
 
 	srv.OutputHandle("/adc", dev.adc)
 
@@ -81,7 +81,7 @@ func (dev *datasrc) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) e
 	return nil
 }
 
-func (dev *datasrc) OnTerminate(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+func (dev *datasrc) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }

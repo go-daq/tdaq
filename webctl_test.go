@@ -113,7 +113,7 @@ func TestRunControlWebAPI(t *testing.T) {
 		srv.CmdHandle("/reset", dev.OnReset)
 		srv.CmdHandle("/start", dev.OnStart)
 		srv.CmdHandle("/stop", dev.OnStop)
-		srv.CmdHandle("/term", dev.OnTerminate)
+		srv.CmdHandle("/quit", dev.OnQuit)
 
 		srv.OutputHandle("/adc", dev.ADC)
 
@@ -218,7 +218,7 @@ loop:
 		{name: "status", want: fsm.Stopped.String()},
 		{name: "start", want: fsm.Running.String()},
 		{name: "stop", want: fsm.Stopped.String()},
-		{name: "term", want: fsm.Exiting.String()},
+		{name: "quit", want: fsm.Exiting.String()},
 	} {
 		req, err := tcli.cmd(tt.name)
 		if err != nil {
@@ -232,7 +232,7 @@ loop:
 			}
 			defer resp.Body.Close()
 
-			if tt.name == "term" {
+			if tt.name == "quit" {
 				return
 			}
 

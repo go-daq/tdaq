@@ -61,7 +61,7 @@ func New(cfg config.Process, stdout io.Writer) *Server {
 		msg:  newMsgStream(cfg.Name, cfg.Level, stdout),
 		cmgr: newCmdMgr(
 			"/config", "/init", "/reset", "/start", "/stop",
-			"/term",
+			"/quit",
 			"/status",
 		),
 
@@ -166,7 +166,7 @@ func (srv *Server) join(ctx context.Context) error {
 
 	select {
 	case <-srv.quit:
-		return xerrors.Errorf("could not /join run-ctl before terminate")
+		return xerrors.Errorf("could not /join run-ctl before exiting")
 	case <-ctx.Done():
 		return xerrors.Errorf("could not /join run-ctl before timeout: %w", ctx.Err())
 	default:
@@ -359,8 +359,8 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	case "/stop":
 		onCmd = srv.onStop
 		next = fsm.Stopped
-	case "/term":
-		onCmd = srv.onTerm
+	case "/quit":
+		onCmd = srv.onQuit
 		next = fsm.Exiting
 		defer close(srv.quit)
 
@@ -523,7 +523,7 @@ func (srv *Server) onStop(ctx Context, req Frame) error {
 	return nil
 }
 
-func (srv *Server) onTerm(ctx Context, req Frame) error {
+func (srv *Server) onQuit(ctx Context, req Frame) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 

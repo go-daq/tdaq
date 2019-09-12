@@ -71,7 +71,7 @@ func (dev *TestProducer) OnStop(ctx Context, resp *Frame, req Frame) error {
 	return nil
 }
 
-func (dev *TestProducer) OnTerminate(ctx Context, resp *Frame, req Frame) error {
+func (dev *TestProducer) OnQuit(ctx Context, resp *Frame, req Frame) error {
 	ctx.Msg.Debugf("received %q command...", req.Path)
 	return nil
 }

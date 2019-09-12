@@ -624,8 +624,8 @@ func (rc *RunControl) Do(ctx context.Context, cmd CmdType) error {
 		fct = rc.doStart
 	case CmdStop:
 		fct = rc.doStop
-	case CmdTerm:
-		fct = rc.doTerm
+	case CmdQuit:
+		fct = rc.doQuit
 	case CmdStatus:
 		fct = rc.doStatus
 	default:
@@ -779,13 +779,13 @@ func (rc *RunControl) doStop(ctx context.Context) error {
 	return nil
 }
 
-func (rc *RunControl) doTerm(ctx context.Context) error {
+func (rc *RunControl) doQuit(ctx context.Context) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	rc.msg.Infof("/term processes...")
+	rc.msg.Infof("/quit processes...")
 	defer close(rc.quit)
 
-	err := rc.broadcast(ctx, CmdTerm)
+	err := rc.broadcast(ctx, CmdQuit)
 	if err != nil {
 		rc.status = fsm.Error
 		return err

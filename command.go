@@ -26,7 +26,7 @@ const (
 	CmdReset
 	CmdStart
 	CmdStop
-	CmdTerm
+	CmdQuit
 	CmdStatus
 	CmdLog
 )
@@ -40,7 +40,7 @@ var cmdNames = [...][]byte{
 	CmdReset:   []byte("/reset"),
 	CmdStart:   []byte("/start"),
 	CmdStop:    []byte("/stop"),
-	CmdTerm:    []byte("/term"),
+	CmdQuit:    []byte("/quit"),
 	CmdStatus:  []byte("/status"),
 	CmdLog:     []byte("/log"),
 }

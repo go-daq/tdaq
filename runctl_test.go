@@ -97,7 +97,7 @@ func TestRunControlAPI(t *testing.T) {
 		srv.CmdHandle("/reset", dev.OnReset)
 		srv.CmdHandle("/start", dev.OnStart)
 		srv.CmdHandle("/stop", dev.OnStop)
-		srv.CmdHandle("/term", dev.OnTerminate)
+		srv.CmdHandle("/quit", dev.OnQuit)
 
 		srv.OutputHandle("/adc", dev.ADC)
 
@@ -159,7 +159,7 @@ loop:
 		{"status", tdaq.CmdStatus},
 		{"start", tdaq.CmdStart},
 		{"stop", tdaq.CmdStop},
-		{"term", tdaq.CmdTerm},
+		{"quit", tdaq.CmdQuit},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		func() {
