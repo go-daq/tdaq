@@ -20,33 +20,88 @@ $> go get github.com/go-daq/tdaq/...
 In a terminal, launch the `run-control`:
 
 ```
-$> tdaq-runctl
-tdaq-runctl 
+$> tdaq-runctl -web=:8080 -i -lvl dbg
 tdaq-runctl          INFO listening on ":44000"...
+
+::::::::::::::::::::::::::
+:::  RunControl shell  :::
+::::::::::::::::::::::::::
+
+- /config -> configure tdaq processes
+- /init   -> initialize tdaq processes
+- /start  -> start a new run
+- /stop   -> stop current run
+- /reset  -> reset tdaq processes
+- /term   -> terminate tdaq processes
+
 tdaq-runctl          INFO waiting for commands...
-tdaq-runctl          INFO received JOIN from conn 127.0.0.1:49752
+tdaq-runctl>>
+tdaq-runctl          INFO starting web run-ctl server on ":8080"...
+tdaq-runctl          INFO received /join from conn 127.0.0.1:44066
 tdaq-runctl          INFO   proc: "tdaq-datasrc"
 tdaq-runctl          INFO    - outputs:
 tdaq-runctl          INFO      - name: "/adc"
-tdaq-runctl          INFO        addr: "[::]:38713"
-tdaq-runctl          INFO received JOIN from conn 127.0.0.1:49754
+tdaq-runctl          INFO        addr: "[::]:34373"
+tdaq-runctl          INFO received /join from conn 127.0.0.1:44112
 tdaq-runctl          INFO   proc: "tdaq-datasink"
 tdaq-runctl          INFO    - inputs:
 tdaq-runctl          INFO      - name: "/adc"
-tdaq-runctl> /config
+tdaq-runctl>> /config
 tdaq-runctl          INFO /config processes...
-tdaq-runctl> /init
+tdaq-runctl          DBG  sending /config to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending /config to "tdaq-datasink"...
+tdaq-runctl          DBG  sending /config to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending /config to "tdaq-datasink"... [ok]
+tdaq-runctl>> /init
 tdaq-runctl          INFO /init processes...
-tdaq-runctl> /start
+tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdInit... [ok]
+tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdInit... [ok]
+tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasink"... [ok]
+tdaq-runctl>> /start
 tdaq-runctl          INFO /start processes...
-tdaq-runctl> /stop
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdStart... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdStart... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasink"... [ok]
+tdaq-runctl>> /stop
 tdaq-runctl          INFO /stop processes...
-tdaq-runctl> /start
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdStop... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdStop... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"... [ok]
+tdaq-runctl>> /start
 tdaq-runctl          INFO /start processes...
-tdaq-runctl> /stop
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdStart... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdStart... [ok]
+tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasink"... [ok]
+tdaq-runctl>> /stop
 tdaq-runctl          INFO /stop processes...
-tdaq-runctl> /term
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdStop... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdStop... [ok]
+tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasrc"... [ok]
+tdaq-runctl>> /term
 tdaq-runctl          INFO /term processes...
+tdaq-runctl          DBG  sending cmd CmdTerm to "tdaq-datasrc"...
+tdaq-runctl          DBG  sending cmd CmdTerm... [ok]
+tdaq-runctl          DBG  sending cmd CmdTerm to "tdaq-datasrc"... [ok]
+tdaq-runctl          DBG  sending cmd CmdTerm to "tdaq-datasink"...
+tdaq-runctl          DBG  sending cmd CmdTerm... [ok]
+tdaq-runctl          DBG  sending cmd CmdTerm to "tdaq-datasink"... [ok]
+tdaq-runctl          INFO shutting down...
+tdaq-runctl          INFO closing...
 ```
 
 In a second terminal, launch the `tdaq-datasrc` data producer application:
@@ -75,3 +130,7 @@ tdaq-datasink        DBG  received /start command...
 tdaq-datasink        DBG  received /stop command... -> n=457
 tdaq-datasink        DBG  received "/term" command...
 ```
+
+One has also access to a web-based control UI for the run-ctl:
+
+![web-ui](https://github.com/go-daq/tdaq/raw/master/testdata/webui_golden.png)
