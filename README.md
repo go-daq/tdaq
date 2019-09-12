@@ -6,6 +6,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-daq/tdaq)](https://goreportcard.com/report/github.com/go-daq/tdaq)
 [![GoDoc](https://godoc.org/github.com/go-daq/tdaq?status.svg)](https://godoc.org/github.com/go-daq/tdaq)
 [![License](https://img.shields.io/badge/License-BSD--3-blue.svg)](https://github.com/go-daq/tdaq/license)
+[![DOI](https://zenodo.org/badge/206621458.svg)](https://zenodo.org/badge/latestdoi/206621458)
+
 
 `tdaq` is a toolkit to create distributed DAQ systems, over TCP/IP.
 
