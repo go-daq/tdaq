@@ -163,3 +163,67 @@ func TestMsgFrame(t *testing.T) {
 		})
 	}
 }
+
+func TestFrame(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name  string
+		frame Frame
+	}{
+		{
+			name: "unknown",
+			frame: Frame{
+				Type: FrameUnknown,
+			},
+		},
+		{
+			name:  "cmd",
+			frame: Frame{Type: FrameCmd},
+		},
+		{
+			name: "data",
+			frame: Frame{
+				Len:  12,
+				Type: FrameData,
+				Path: "/adc",
+				Body: []byte("ADC DATA"),
+			},
+		},
+		{
+			name:  "msg",
+			frame: Frame{Type: FrameMsg},
+		},
+		{
+			name:  "ok",
+			frame: Frame{Type: FrameOK},
+		},
+		{
+			name:  "err",
+			frame: Frame{Type: FrameErr},
+		},
+		{
+			name:  "eof",
+			frame: Frame{Type: FrameEOF},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := new(bytes.Buffer)
+			err := SendFrame(ctx, buf, tt.frame)
+			if err != nil {
+				t.Fatalf("could not send frame: %+v", err)
+			}
+
+			got, err := RecvFrame(ctx, buf)
+			if err != nil {
+				t.Fatalf("could not recv frame: %+v", err)
+			}
+
+			if got, want := got, tt.frame; !reflect.DeepEqual(got, want) {
+				t.Fatalf("invalid r/w round-trip for frame %q:\ngot = %#v\nwant= %#v\n", tt.name, got, want)
+			}
+			if got, want := got.Type.String(), tt.frame.Type.String(); got != want {
+				t.Fatalf("invalid frame type: got=%q, want=%q", got, want)
+			}
+		})
+	}
+}
