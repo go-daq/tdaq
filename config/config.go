@@ -23,7 +23,6 @@ type RunCtl struct {
 	Name   string    // name of the run-ctl process
 	Level  log.Level // verbosity level of the run-ctl process
 	RunCtl string    // address of the TCP run-ctl cmd server
-	Log    string    // address of the TCP run-ctl log server
 	Web    string    // address of the HTTP run-ctl web server
 
 	Interactive bool // enable interactive shell commands for the run-ctl process

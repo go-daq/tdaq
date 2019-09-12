@@ -122,13 +122,22 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.srv = srv
 
-	srv, err = net.Listen("tcp", cfg.Log)
+	port := ""
+	switch ip := rc.srv.Addr().(*net.TCPAddr).IP; {
+	case ip.To4() != nil:
+		port = ip.String() + ":0"
+	default:
+		// IPv6
+		port = "[" + ip.String() + "]:0"
+	}
+
+	srv, err = net.Listen("tcp", port)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create TCP log server: %w", err)
 	}
 	rc.log = srv
 
-	hbeat, err := net.Listen("tcp", ":0")
+	hbeat, err := net.Listen("tcp", port)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create TCP hbeat server: %w", err)
 	}
