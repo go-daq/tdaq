@@ -307,6 +307,8 @@ func (mgr *omgr) onStop(ctx Context) error {
 func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 	defer close(mgr.done)
 
+	buf := new(bytes.Buffer)
+
 	for {
 		select {
 		case <-ctx.Ctx.Done():
@@ -324,7 +326,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 				continue
 			}
 
-			buf := new(bytes.Buffer)
+			buf.Reset()
 			err = SendFrame(ctx.Ctx, buf, resp)
 			if err != nil {
 				ctx.Msg.Errorf("could not serialize data frame for %q: %+v", ep, err)
