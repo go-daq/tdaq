@@ -102,6 +102,10 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	stdout = io.MultiWriter(stdout, flog)
 	out := newSyncWriter(stdout)
 
+	if cfg.HBeatFreq <= 0 {
+		cfg.HBeatFreq = 5 * time.Second
+	}
+
 	rc := &RunControl{
 		quit:      make(chan struct{}),
 		cfg:       cfg,
@@ -536,7 +540,11 @@ func (rc *RunControl) handleHeartbeatConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	hbeat := time.NewTicker(5 * time.Second)
+	rc.mu.RLock()
+	freq := rc.cfg.HBeatFreq
+	rc.mu.RUnlock()
+
+	hbeat := time.NewTicker(freq)
 	defer hbeat.Stop()
 
 	for {

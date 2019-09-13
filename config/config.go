@@ -6,6 +6,8 @@
 package config // import "github.com/go-daq/tdaq/config"
 
 import (
+	"time"
+
 	"github.com/go-daq/tdaq/log"
 )
 
@@ -27,7 +29,8 @@ type RunCtl struct {
 
 	Interactive bool // enable interactive shell commands for the run-ctl process
 
-	LogFile string // path to logfile for run-ctl log server
+	LogFile   string        // path to logfile for run-ctl log server
+	HBeatFreq time.Duration // frequency for heartbeat server
 
 	Args []string // additional flag arguments
 }

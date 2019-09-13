@@ -104,8 +104,17 @@ func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rc *RunControl) webStatus(ws *websocket.Conn) {
-	tick := time.NewTicker(1 * time.Second)
+	rc.mu.RLock()
+	freq := rc.cfg.HBeatFreq
+	rc.mu.RUnlock()
+
+	if freq > 1*time.Second {
+		freq = 1 * time.Second
+	}
+
+	tick := time.NewTicker(freq)
 	defer tick.Stop()
+
 	for {
 		select {
 		case <-rc.quit:

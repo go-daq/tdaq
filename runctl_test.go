@@ -59,11 +59,12 @@ func TestRunControlAPI(t *testing.T) {
 	}()
 
 	cfg := config.RunCtl{
-		Name:    "run-ctl",
-		Level:   rclvl,
-		RunCtl:  rcAddr,
-		Web:     webAddr,
-		LogFile: fname.Name(),
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
 	}
 
 	rc, err := tdaq.NewRunControl(cfg, stdout)

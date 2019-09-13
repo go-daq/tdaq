@@ -66,11 +66,12 @@ func TestRunControlWebAPI(t *testing.T) {
 	}()
 
 	cfg := config.RunCtl{
-		Name:    "run-ctl",
-		Level:   rclvl,
-		RunCtl:  rcAddr,
-		Web:     webAddr,
-		LogFile: fname.Name(),
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
 	}
 
 	rc, err := NewRunControl(cfg, stdout)

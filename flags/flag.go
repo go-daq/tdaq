@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/log"
@@ -57,6 +58,7 @@ func NewRunControl() config.RunCtl {
 	flag.BoolVar(&cmd.Interactive, "i", false, "enable interactive run-ctl shell")
 
 	flag.StringVar(&cmd.LogFile, "log-file", "", "path to log file for run-ctl log server")
+	flag.DurationVar(&cmd.HBeatFreq, "hbeat", 5*time.Second, "frequency for the heartbeat server")
 
 	flag.Parse()
 
