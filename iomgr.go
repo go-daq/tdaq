@@ -322,7 +322,9 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 			resp := Frame{Type: FrameData}
 			err := f(ctx, &resp)
 			if err != nil {
-				ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
+				if err != io.EOF {
+					ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
+				}
 				continue
 			}
 
