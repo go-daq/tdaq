@@ -319,7 +319,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 			}
 			return
 		default:
-			resp := Frame{Type: FrameData}
+			resp := Frame{Type: FrameData, Path: ep}
 			err := f(ctx, &resp)
 			if err != nil {
 				if err != io.EOF {
