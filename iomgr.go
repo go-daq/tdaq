@@ -319,7 +319,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 			}
 			return
 		default:
-			var resp Frame
+			resp := Frame{Type: FrameData}
 			err := f(ctx, &resp)
 			if err != nil {
 				ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
