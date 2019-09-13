@@ -8,7 +8,6 @@ package main
 import (
 	"context"
 	"encoding/binary"
-	"io"
 	"os"
 	"time"
 
@@ -74,7 +73,7 @@ func (dev *counter) adc(ctx tdaq.Context, dst *tdaq.Frame) error {
 	select {
 	case <-ctx.Ctx.Done():
 		dst.Body = nil
-		return io.EOF
+		return nil
 	case data := <-dev.ch:
 		dst.Body = make([]byte, 8)
 		binary.LittleEndian.PutUint64(dst.Body, uint64(data))

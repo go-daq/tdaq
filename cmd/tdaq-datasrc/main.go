@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"math/rand"
 	"os"
 	"time"
@@ -91,7 +90,7 @@ func (dev *datasrc) adc(ctx tdaq.Context, dst *tdaq.Frame) error {
 	select {
 	case <-ctx.Ctx.Done():
 		dst.Body = nil
-		return io.EOF
+		return nil
 	case data := <-dev.data:
 		dst.Body = data
 	}

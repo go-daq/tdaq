@@ -6,6 +6,7 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"sort"
@@ -322,9 +323,10 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 			resp := Frame{Type: FrameData, Path: ep}
 			err := f(ctx, &resp)
 			if err != nil {
-				if err != io.EOF {
-					ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
-				}
+				ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
+				continue
+			}
+			if err := ctx.Ctx.Err(); err != nil && xerrors.Is(err, context.Canceled) {
 				continue
 			}
 

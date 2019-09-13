@@ -7,7 +7,6 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"io"
 	"math/rand"
 	"net"
 	"reflect"
@@ -81,7 +80,7 @@ func (dev *TestProducer) ADC(ctx Context, dst *Frame) error {
 	select {
 	case <-ctx.Ctx.Done():
 		dst.Body = nil
-		return io.EOF
+		return nil
 	case data := <-dev.data:
 		dst.Body = data
 	}
