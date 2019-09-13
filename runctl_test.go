@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,4 +184,415 @@ loop:
 		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
+}
+
+func TestRunControlWithDuplicateProc(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlInfo
+	)
+
+	port, err := tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	stdout := new(bytes.Buffer)
+
+	fname, err := ioutil.TempFile("", "tdaq-")
+	if err != nil {
+		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+	}
+	fname.Close()
+	defer func() {
+		if err != nil {
+			raw, err := ioutil.ReadFile(fname.Name())
+			if err == nil {
+				t.Logf("log-file:\n%v\n", string(raw))
+			}
+		}
+		os.Remove(fname.Name())
+	}()
+
+	cfg := config.RunCtl{
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
+	}
+
+	rc, err := tdaq.NewRunControl(cfg, stdout)
+	if err != nil {
+		t.Fatalf("could not create run-ctl: %+v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	grp, ctx := errgroup.WithContext(ctx)
+
+	errc := make(chan error)
+	go func() {
+		errc <- rc.Run(ctx)
+	}()
+
+	grp.Go(func() error {
+		dev := tdaq.TestProducer{Seed: 1234}
+
+		cfg := config.Process{
+			Name:   "proc-1",
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, ioutil.Discard)
+		srv.OutputHandle("/adc", dev.ADC)
+
+		srv.RunHandle(dev.Loop)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	grp.Go(func() error {
+		dev := tdaq.TestConsumer{}
+		cfg := config.Process{
+			Name:   "proc-1",
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, ioutil.Discard)
+		srv.InputHandle("/adc", dev.ADC)
+		err := srv.Run(ctx)
+		return err
+	})
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+loop:
+	for {
+		select {
+		case <-timeout.C:
+			t.Logf("stdout:\n%v\n", stdout.String())
+			t.Fatalf("devices did not connect")
+		case err := <-errc:
+			if err == nil {
+				t.Fatalf("expected an error!")
+			}
+			if !xerrors.Is(err, context.Canceled) {
+				t.Fatalf("expected a canceled-context error, got: %+v", err)
+			}
+			break loop
+		}
+	}
+
+	err = grp.Wait()
+	if err == nil {
+		t.Fatalf("expected an error!")
+	}
+	want := xerrors.Errorf(`could not join run-ctl: received error /join-ack from run-ctl: duplicate tdaq process with name "proc-1"`)
+	if got, want := err.Error(), want.Error(); !strings.HasPrefix(got, want) {
+		t.Fatalf("invalid error.\ngot= %v\nwant=%v\n", got, want)
+	}
+	err = nil
+}
+
+func TestRunControlWithDuplicateOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlInfo
+	)
+
+	port, err := tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	stdout := new(bytes.Buffer)
+
+	fname, err := ioutil.TempFile("", "tdaq-")
+	if err != nil {
+		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+	}
+	fname.Close()
+	defer func() {
+		if err != nil {
+			raw, err := ioutil.ReadFile(fname.Name())
+			if err == nil {
+				t.Logf("log-file:\n%v\n", string(raw))
+			}
+		}
+		os.Remove(fname.Name())
+	}()
+
+	cfg := config.RunCtl{
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
+	}
+
+	rc, err := tdaq.NewRunControl(cfg, stdout)
+	if err != nil {
+		t.Fatalf("could not create run-ctl: %+v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	grp, ctx := errgroup.WithContext(ctx)
+
+	errc := make(chan error)
+	go func() {
+		errc <- rc.Run(ctx)
+	}()
+
+	grp.Go(func() error {
+		dev := tdaq.TestProducer{Seed: 1234}
+
+		cfg := config.Process{
+			Name:   "proc-1",
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, ioutil.Discard)
+		srv.OutputHandle("/adc", dev.ADC)
+
+		srv.RunHandle(dev.Loop)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	grp.Go(func() error {
+		dev := tdaq.TestProducer{Seed: 1234}
+		cfg := config.Process{
+			Name:   "proc-2",
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, ioutil.Discard)
+		srv.OutputHandle("/adc", dev.ADC)
+		err := srv.Run(ctx)
+		return err
+	})
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+loop:
+	for {
+		select {
+		case <-timeout.C:
+			t.Logf("stdout:\n%v\n", stdout.String())
+			t.Fatalf("devices did not connect")
+		default:
+			n := rc.NumClients()
+			if n == 2 {
+				break loop
+			}
+		}
+	}
+
+	for _, tt := range []struct {
+		name string
+		cmd  tdaq.CmdType
+		err  error
+	}{
+		{"config", tdaq.CmdConfig, nil},
+		{"init", tdaq.CmdInit, xerrors.Errorf(`could not create DAG of data dependencies: could not build graph for analysis: node "proc-1" already declared "/adc" as its output (dup-node="proc-2")`)},
+		{"quit", tdaq.CmdQuit, nil},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		func() {
+			defer cancel()
+			err = rc.Do(ctx, tt.cmd)
+			switch {
+			case err == nil && tt.err == nil:
+				// ok
+			case err != nil && tt.err != nil:
+				if got, want := err.Error(), tt.err.Error(); got != want {
+					t.Fatalf("sent command /%s\ngot = %+v\nwant= %+v\n", tt.cmd, err, tt.err)
+				}
+			case err != nil && tt.err == nil:
+				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
+			case err == nil && tt.err != nil:
+				t.Fatalf("sent command /%s. got=nil, want=%+v\n", tt.cmd, tt.err)
+			default:
+				t.Fatalf("err: %+v", err)
+			}
+		}()
+	}
+
+	err = grp.Wait()
+	if err != nil {
+		t.Logf("stdout:\n%v\n", stdout.String())
+		t.Fatalf("could not run device run-group: %+v", err)
+	}
+
+	err = <-errc
+	if err != nil && !xerrors.Is(err, context.Canceled) {
+		t.Logf("stdout:\n%v\n", stdout.String())
+		t.Fatalf("error shutting down run-ctl: %+v", err)
+	}
+
+}
+
+func TestRunControlWithMissingInput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlInfo
+	)
+
+	port, err := tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tdaq.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	stdout := new(bytes.Buffer)
+
+	fname, err := ioutil.TempFile("", "tdaq-")
+	if err != nil {
+		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+	}
+	fname.Close()
+	defer func() {
+		if err != nil {
+			raw, err := ioutil.ReadFile(fname.Name())
+			if err == nil {
+				t.Logf("log-file:\n%v\n", string(raw))
+			}
+		}
+		os.Remove(fname.Name())
+	}()
+
+	cfg := config.RunCtl{
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
+	}
+
+	rc, err := tdaq.NewRunControl(cfg, stdout)
+	if err != nil {
+		t.Fatalf("could not create run-ctl: %+v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	grp, ctx := errgroup.WithContext(ctx)
+
+	errc := make(chan error)
+	go func() {
+		errc <- rc.Run(ctx)
+	}()
+
+	grp.Go(func() error {
+		dev := tdaq.TestConsumer{}
+
+		cfg := config.Process{
+			Name:   "proc-1",
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, ioutil.Discard)
+		srv.InputHandle("/adc", dev.ADC)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+loop:
+	for {
+		select {
+		case <-timeout.C:
+			t.Logf("stdout:\n%v\n", stdout.String())
+			t.Fatalf("devices did not connect")
+		default:
+			n := rc.NumClients()
+			if n == 1 {
+				break loop
+			}
+		}
+	}
+
+	for _, tt := range []struct {
+		name string
+		cmd  tdaq.CmdType
+		err  error
+	}{
+		{"config", tdaq.CmdConfig, xerrors.Errorf(`could not find a provider for input "/adc" for "proc-1"`)},
+		{"quit", tdaq.CmdQuit, nil},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		func() {
+			defer cancel()
+			err = rc.Do(ctx, tt.cmd)
+			switch {
+			case err == nil && tt.err == nil:
+				// ok
+			case err != nil && tt.err != nil:
+				if got, want := err.Error(), tt.err.Error(); got != want {
+					t.Fatalf("sent command /%s\ngot = %+v\nwant= %+v\n", tt.cmd, err, tt.err)
+				}
+			case err != nil && tt.err == nil:
+				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
+			case err == nil && tt.err != nil:
+				t.Fatalf("sent command /%s. got=nil, want=%+v\n", tt.cmd, tt.err)
+			default:
+				t.Fatalf("err: %+v", err)
+			}
+		}()
+	}
+
+	err = grp.Wait()
+	if err != nil {
+		t.Logf("stdout:\n%v\n", stdout.String())
+		t.Fatalf("could not run device run-group: %+v", err)
+	}
+
+	err = <-errc
+	if err != nil && !xerrors.Is(err, context.Canceled) {
+		t.Logf("stdout:\n%v\n", stdout.String())
+		t.Fatalf("error shutting down run-ctl: %+v", err)
+	}
+
 }

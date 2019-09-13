@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
+	"github.com/go-daq/tdaq/internal/dflow"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
@@ -77,6 +78,7 @@ type RunControl struct {
 	status    fsm.StateKind
 	msg       log.MsgStream
 	procs     map[string]*proc
+	dag       *dflow.Graph // DAG of data dependencies b/w processes
 	listening bool
 
 	msgch chan MsgFrame // messages from log server
@@ -113,6 +115,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		status:    fsm.UnConf,
 		msg:       log.NewMsgStream(cfg.Name, cfg.Level, out),
 		procs:     make(map[string]*proc),
+		dag:       dflow.New(),
 		listening: true,
 		msgch:     make(chan MsgFrame, 1024),
 		flog:      flog,
@@ -191,7 +194,12 @@ loop:
 
 		case <-ctx.Done():
 			rc.msg.Infof("context done: shutting down...")
-			close(rc.quit)
+			select {
+			case <-rc.quit:
+				// ok
+			default:
+				close(rc.quit)
+			}
 			err = ctx.Err()
 			break loop
 		}
@@ -396,6 +404,16 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		}
 	}
 
+	err = rc.addProcNode(ctx, join)
+	if err != nil {
+		rc.msg.Errorf("could not validate /join from %q: %+v", join.Name, err)
+		err = SendFrame(ctx, conn, Frame{Type: FrameErr, Body: []byte(err.Error())})
+		if err != nil {
+			rc.msg.Errorf("could not send /join-ack err to %q: %+v", join.Name, err)
+		}
+		return
+	}
+
 	rc.procs[join.Name] = &proc{
 		name: join.Name,
 		status: fsm.Status{
@@ -409,7 +427,7 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	ackOK := Frame{Type: FrameOK}
 	err = SendFrame(ctx, conn, ackOK)
 	if err != nil {
-		rc.msg.Errorf("could not recv /join-ack from %q: %+", join.Name, err)
+		rc.msg.Errorf("could not send /join-ack to %q: %+v", join.Name, err)
 		return
 	}
 
@@ -424,6 +442,33 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		rc.msg.Errorf("could not setup /hbeat cmd: %+v", err2)
 		return
 	}
+}
+
+func (rc *RunControl) addProcNode(ctx context.Context, cmd JoinCmd) error {
+	if rc.dag.Has(cmd.Name) {
+		p := rc.procs[cmd.Name]
+		return xerrors.Errorf("duplicate tdaq process with name %q (conn=%v)", cmd.Name, p.cmd.RemoteAddr())
+	}
+
+	var (
+		in  = make([]string, len(cmd.InEndPoints))
+		out = make([]string, len(cmd.OutEndPoints))
+	)
+
+	for i, p := range cmd.InEndPoints {
+		in[i] = p.Name
+	}
+
+	for i, p := range cmd.OutEndPoints {
+		out[i] = p.Name
+	}
+
+	err := rc.dag.Add(cmd.Name, in, out)
+	if err != nil {
+		return xerrors.Errorf("could not add process %q to DAG: %w", cmd.Name, err)
+	}
+
+	return nil
 }
 
 func (rc *RunControl) setupLogCmd(ctx context.Context, name string, conn net.Conn) error {
@@ -716,7 +761,12 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 	defer rc.mu.Unlock()
 	rc.msg.Infof("/init processes...")
 
-	err := rc.broadcast(ctx, CmdInit)
+	err := rc.dag.Analyze()
+	if err != nil {
+		return xerrors.Errorf("could not create DAG of data dependencies: %w", err)
+	}
+
+	err = rc.broadcast(ctx, CmdInit)
 	if err != nil {
 		rc.status = fsm.Error
 		return err
