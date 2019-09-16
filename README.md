@@ -31,9 +31,10 @@ tdaq-runctl          INFO listening on ":44000"...
 
 - /config -> configure tdaq processes
 - /init   -> initialize tdaq processes
-- /start  -> start a new run
+- /run    -> start a new run
 - /stop   -> stop current run
 - /reset  -> reset tdaq processes
+- /status -> display status of all tdaq processes
 - /quit   -> terminate tdaq processes (and quit)
 
 tdaq-runctl          INFO waiting for commands...
@@ -62,7 +63,7 @@ tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasrc"... [ok]
 tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasink"...
 tdaq-runctl          DBG  sending cmd CmdInit... [ok]
 tdaq-runctl          DBG  sending cmd CmdInit to "tdaq-datasink"... [ok]
-tdaq-runctl>> /start
+tdaq-runctl>> /run
 tdaq-runctl          INFO /start processes...
 tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"...
 tdaq-runctl          DBG  sending cmd CmdStart... [ok]
@@ -78,7 +79,7 @@ tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasrc"... [ok]
 tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"...
 tdaq-runctl          DBG  sending cmd CmdStop... [ok]
 tdaq-runctl          DBG  sending cmd CmdStop to "tdaq-datasink"... [ok]
-tdaq-runctl>> /start
+tdaq-runctl>> /run
 tdaq-runctl          INFO /start processes...
 tdaq-runctl          DBG  sending cmd CmdStart to "tdaq-datasrc"...
 tdaq-runctl          DBG  sending cmd CmdStart... [ok]

@@ -52,9 +52,10 @@ func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 
 - /config -> configure tdaq processes
 - /init   -> initialize tdaq processes
-- /start  -> start a new run
+- /run    -> start a new run
 - /stop   -> stop current run
 - /reset  -> reset tdaq processes
+- /status -> display status of all tdaq processes
 - /quit   -> terminate tdaq processes (and quit)
 
 `)
@@ -112,7 +113,7 @@ func newShell(cfg config.RunCtl, rc *tdaq.RunControl) *liner.State {
 					log.Errorf("could not run /reset: %+v", err)
 					continue
 				}
-			case "/start":
+			case "/run":
 				term.AppendHistory(o)
 				err = rc.Do(ctx, tdaq.CmdStart)
 				if err != nil {
@@ -165,7 +166,7 @@ func shellCompleter(line string, pos int) (prefix string, completions []string, 
 
 	cmds := []string{
 		"/config", "/init", "/reset",
-		"/start", "/stop",
+		"/run", "/stop",
 		"/quit",
 		"/status",
 	}
