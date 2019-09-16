@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Command tdaq-i64-print is a simple program that consumes int64 data.
+// Command tdaq-i64-dump is a simple program that consumes int64 data and dumps it on screen.
 package main
 
 import (
 	"context"
 	"encoding/binary"
+	"flag"
 	"os"
 
 	"github.com/go-daq/tdaq"
@@ -16,6 +17,11 @@ import (
 )
 
 func main() {
+
+	var (
+		iname = flag.String("i", "/adc", "name of the input int64 data stream end-point")
+	)
+
 	cmd := flags.New()
 
 	dev := device{}
@@ -25,7 +31,7 @@ func main() {
 	srv.CmdHandle("/stop", dev.OnStop)
 	srv.CmdHandle("/quit", dev.OnQuit)
 
-	srv.InputHandle("/adc", dev.adc)
+	srv.InputHandle(*iname, dev.adc)
 
 	err := srv.Run(context.Background())
 	if err != nil {
@@ -71,8 +77,8 @@ func (dev *device) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) er
 }
 
 func (dev *device) adc(ctx tdaq.Context, src tdaq.Frame) error {
-	dev.n = int64(binary.LittleEndian.Uint64(src.Body))
-	ctx.Msg.Debugf("received: %d -> %v", len(src.Body), dev.n)
+	v := int64(binary.LittleEndian.Uint64(src.Body))
 	dev.n++
+	ctx.Msg.Debugf("received: %d -> %d", v, dev.n)
 	return nil
 }
