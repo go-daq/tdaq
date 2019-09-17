@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
+	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/tdaqio"
 	"golang.org/x/sync/errgroup"
@@ -30,14 +31,14 @@ func TestRunControlAPI(t *testing.T) {
 		proclvl = log.LvlInfo
 	)
 
-	port, err := tdaq.GetTCPPort()
+	port, err := tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = tdaq.GetTCPPort()
+	port, err = tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}
@@ -192,14 +193,14 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 		proclvl = log.LvlInfo
 	)
 
-	port, err := tdaq.GetTCPPort()
+	port, err := tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = tdaq.GetTCPPort()
+	port, err = tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}
@@ -315,14 +316,14 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 		proclvl = log.LvlInfo
 	)
 
-	port, err := tdaq.GetTCPPort()
+	port, err := tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = tdaq.GetTCPPort()
+	port, err = tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}
@@ -467,14 +468,14 @@ func TestRunControlWithMissingInput(t *testing.T) {
 		proclvl = log.LvlInfo
 	)
 
-	port, err := tdaq.GetTCPPort()
+	port, err := tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = tdaq.GetTCPPort()
+	port, err = tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}

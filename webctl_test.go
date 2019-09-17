@@ -22,6 +22,7 @@ import (
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
+	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/tdaqio"
 	"golang.org/x/net/websocket"
@@ -37,14 +38,14 @@ func TestRunControlWebAPI(t *testing.T) {
 		proclvl = log.LvlDebug
 	)
 
-	port, err := tdaq.GetTCPPort()
+	port, err := tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = tdaq.GetTCPPort()
+	port, err = tcputil.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}
