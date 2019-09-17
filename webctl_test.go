@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tdaq // import "github.com/go-daq/tdaq"
+package tdaq_test // import "github.com/go-daq/tdaq"
 
 import (
 	"bytes"
@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
+	"github.com/go-daq/tdaq/tdaqio"
 	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -35,14 +37,14 @@ func TestRunControlWebAPI(t *testing.T) {
 		proclvl = log.LvlDebug
 	)
 
-	port, err := GetTCPPort()
+	port, err := tdaq.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
 	}
 
 	rcAddr := ":" + port
 
-	port, err = GetTCPPort()
+	port, err = tdaq.GetTCPPort()
 	if err != nil {
 		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
 	}
@@ -74,18 +76,18 @@ func TestRunControlWebAPI(t *testing.T) {
 		HBeatFreq: 50 * time.Millisecond,
 	}
 
-	rc, err := NewRunControl(cfg, stdout)
+	rc, err := tdaq.NewRunControl(cfg, stdout)
 	if err != nil {
 		t.Fatalf("could not create run-ctl: %+v", err)
 	}
-	tsrv := httptest.NewUnstartedServer(rc.web.(*http.Server).Handler)
+	tsrv := httptest.NewUnstartedServer(rc.Web().(*http.Server).Handler)
 	tsrv.Config.ReadTimeout = 5 * time.Second
 	tsrv.Config.WriteTimeout = 5 * time.Second
 	tsrv.Start()
 	defer tsrv.Close()
 
 	cli := tsrv.Client()
-	rc.web = newWebSrvTest(tsrv)
+	rc.SetWebSrv(newWebSrvTest(tsrv))
 	tcli := &testCli{tsrv}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -99,16 +101,14 @@ func TestRunControlWebAPI(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := TestProducer{
-			Seed: 1234,
-		}
+		dev := tdaqio.I64Gen{}
 
 		cfg := config.Process{
 			Name:   "data-src",
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, ioutil.Discard)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -116,7 +116,7 @@ func TestRunControlWebAPI(t *testing.T) {
 		srv.CmdHandle("/stop", dev.OnStop)
 		srv.CmdHandle("/quit", dev.OnQuit)
 
-		srv.OutputHandle("/adc", dev.ADC)
+		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
 
@@ -127,19 +127,19 @@ func TestRunControlWebAPI(t *testing.T) {
 	for _, i := range []int{1, 2, 3} {
 		name := fmt.Sprintf("data-sink-%d", i)
 		grp.Go(func() error {
-			dev := TestConsumer{}
+			dev := tdaqio.I64Dumper{}
 
 			cfg := config.Process{
 				Name:   name,
 				Level:  proclvl,
 				RunCtl: rcAddr,
 			}
-			srv := New(cfg, ioutil.Discard)
+			srv := tdaq.New(cfg, ioutil.Discard)
 			srv.CmdHandle("/init", dev.OnInit)
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)
 
-			srv.InputHandle("/adc", dev.ADC)
+			srv.InputHandle("/i64", dev.Input)
 
 			err := srv.Run(context.Background())
 			return err

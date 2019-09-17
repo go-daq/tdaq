@@ -17,6 +17,7 @@ import (
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/log"
+	"github.com/go-daq/tdaq/tdaqio"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -84,10 +85,7 @@ func TestRunControlAPI(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaq.TestProducer{
-			Seed: 1234,
-		}
-
+		dev := tdaqio.I64Gen{}
 		cfg := config.Process{
 			Name:   "data-src",
 			Level:  proclvl,
@@ -101,7 +99,7 @@ func TestRunControlAPI(t *testing.T) {
 		srv.CmdHandle("/stop", dev.OnStop)
 		srv.CmdHandle("/quit", dev.OnQuit)
 
-		srv.OutputHandle("/adc", dev.ADC)
+		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
 
@@ -112,7 +110,7 @@ func TestRunControlAPI(t *testing.T) {
 	for _, i := range []int{1, 2, 3} {
 		name := fmt.Sprintf("data-sink-%d", i)
 		grp.Go(func() error {
-			dev := tdaq.TestConsumer{}
+			dev := tdaqio.I64Dumper{}
 
 			cfg := config.Process{
 				Name:   name,
@@ -124,7 +122,7 @@ func TestRunControlAPI(t *testing.T) {
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)
 
-			srv.InputHandle("/adc", dev.ADC)
+			srv.InputHandle("/i64", dev.Input)
 
 			err := srv.Run(context.Background())
 			return err
@@ -249,7 +247,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaq.TestProducer{Seed: 1234}
+		dev := tdaqio.I64Gen{}
 
 		cfg := config.Process{
 			Name:   "proc-1",
@@ -257,7 +255,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, ioutil.Discard)
-		srv.OutputHandle("/adc", dev.ADC)
+		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
 
@@ -266,14 +264,14 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaq.TestConsumer{}
+		dev := tdaqio.I64Dumper{}
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, ioutil.Discard)
-		srv.InputHandle("/adc", dev.ADC)
+		srv.InputHandle("/i64", dev.Input)
 		err := srv.Run(ctx)
 		return err
 	})
@@ -372,7 +370,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaq.TestProducer{Seed: 1234}
+		dev := tdaqio.I64Gen{}
 
 		cfg := config.Process{
 			Name:   "proc-1",
@@ -380,7 +378,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, ioutil.Discard)
-		srv.OutputHandle("/adc", dev.ADC)
+		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
 
@@ -389,14 +387,14 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaq.TestProducer{Seed: 1234}
+		dev := tdaqio.I64Gen{}
 		cfg := config.Process{
 			Name:   "proc-2",
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, ioutil.Discard)
-		srv.OutputHandle("/adc", dev.ADC)
+		srv.OutputHandle("/i64", dev.Output)
 		err := srv.Run(ctx)
 		return err
 	})
@@ -423,7 +421,7 @@ loop:
 		err  error
 	}{
 		{"config", tdaq.CmdConfig, nil},
-		{"init", tdaq.CmdInit, xerrors.Errorf(`could not create DAG of data dependencies: could not build graph for analysis: node "proc-1" already declared "/adc" as its output (dup-node="proc-2")`)},
+		{"init", tdaq.CmdInit, xerrors.Errorf(`could not create DAG of data dependencies: could not build graph for analysis: node "proc-1" already declared "/i64" as its output (dup-node="proc-2")`)},
 		{"quit", tdaq.CmdQuit, nil},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -524,7 +522,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaq.TestConsumer{}
+		dev := tdaqio.I64Dumper{}
 
 		cfg := config.Process{
 			Name:   "proc-1",
@@ -532,7 +530,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, ioutil.Discard)
-		srv.InputHandle("/adc", dev.ADC)
+		srv.InputHandle("/i64", dev.Input)
 
 		err := srv.Run(ctx)
 		return err
@@ -559,7 +557,7 @@ loop:
 		cmd  tdaq.CmdType
 		err  error
 	}{
-		{"config", tdaq.CmdConfig, xerrors.Errorf(`could not find a provider for input "/adc" for "proc-1"`)},
+		{"config", tdaq.CmdConfig, xerrors.Errorf(`could not find a provider for input "/i64" for "proc-1"`)},
 		{"quit", tdaq.CmdQuit, nil},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

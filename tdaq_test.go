@@ -7,13 +7,11 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"math/rand"
 	"net"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-daq/tdaq/log"
 )
@@ -31,107 +29,12 @@ func GetTCPPort() (string, error) {
 	return strconv.Itoa(l.Addr().(*net.TCPAddr).Port), nil
 }
 
-type TestProducer struct {
-	Seed int64
-	rnd  *rand.Rand
-
-	n    int
-	data chan []byte
+func (rc *RunControl) SetWebSrv(srv websrv) {
+	rc.web = srv
 }
 
-func (dev *TestProducer) OnConfig(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /config command...")
-	return nil
-}
-
-func (dev *TestProducer) OnInit(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /init command...")
-	dev.rnd = rand.New(rand.NewSource(dev.Seed))
-	dev.data = make(chan []byte, 1024)
-	dev.n = 0
-	return nil
-}
-
-func (dev *TestProducer) OnReset(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /reset command...")
-	dev.rnd = rand.New(rand.NewSource(dev.Seed))
-	dev.data = make(chan []byte, 1024)
-	dev.n = 0
-	return nil
-}
-
-func (dev *TestProducer) OnStart(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /start command...")
-	return nil
-}
-
-func (dev *TestProducer) OnStop(ctx Context, resp *Frame, req Frame) error {
-	n := dev.n
-	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
-	return nil
-}
-
-func (dev *TestProducer) OnQuit(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received %q command...", req.Path)
-	return nil
-}
-
-func (dev *TestProducer) ADC(ctx Context, dst *Frame) error {
-	select {
-	case <-ctx.Ctx.Done():
-		dst.Body = nil
-		return nil
-	case data := <-dev.data:
-		dst.Body = data
-	}
-	return nil
-}
-
-func (dev *TestProducer) Loop(ctx Context) error {
-	for {
-		select {
-		case <-ctx.Ctx.Done():
-			return nil
-		default:
-			raw := make([]byte, 1024)
-			rand.Read(raw)
-			select {
-			case dev.data <- raw:
-				dev.n++
-			default:
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return nil
-}
-
-type TestConsumer struct {
-	n int
-}
-
-func (dev *TestConsumer) OnInit(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /init command...")
-	dev.n = 0
-	return nil
-}
-
-func (dev *TestConsumer) OnReset(ctx Context, resp *Frame, req Frame) error {
-	ctx.Msg.Debugf("received /reset command...")
-	dev.n = 0
-	return nil
-}
-
-func (dev *TestConsumer) OnStop(ctx Context, resp *Frame, req Frame) error {
-	n := dev.n
-	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
-	return nil
-}
-
-func (dev *TestConsumer) ADC(ctx Context, src Frame) error {
-	dev.n++
-	return nil
+func (rc *RunControl) Web() websrv {
+	return rc.web
 }
 
 func TestMsgFrame(t *testing.T) {
