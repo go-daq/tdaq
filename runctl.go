@@ -769,10 +769,7 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 		return xerrors.Errorf("could not create DAG of data dependencies: %w", err)
 	}
 
-	err = rc.buildDeps()
-	if err != nil {
-		return xerrors.Errorf("could not build dependencies-ordered list of tdaq processes: %w", err)
-	}
+	rc.buildDeps()
 
 	err = rc.broadcast(ctx, CmdInit)
 	if err != nil {
@@ -985,7 +982,7 @@ func (rc *RunControl) providerOf(p EndPoint) (string, bool) {
 	return "", false
 }
 
-func (rc *RunControl) buildDeps() error {
+func (rc *RunControl) buildDeps() {
 	epts := make(map[string]struct{}, len(rc.procs))
 	done := make([]string, 0, len(rc.procs))
 	todo := make(map[string]struct{})
@@ -1021,8 +1018,6 @@ loop:
 		}
 	}
 
-	rc.msg.Infof("deps: %q", done)
+	rc.msg.Debugf("deps: %q", done)
 	rc.deps = done
-
-	return nil
 }
