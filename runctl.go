@@ -79,6 +79,7 @@ type RunControl struct {
 	msg       log.MsgStream
 	procs     map[string]*proc
 	dag       *dflow.Graph // DAG of data dependencies b/w processes
+	deps      []string     // dep-ordered list of tdaq processes
 	listening bool
 
 	msgch chan MsgFrame // messages from log server
@@ -423,6 +424,7 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 		oeps: join.OutEndPoints,
 		cmd:  conn,
 	}
+	rc.deps = append(rc.deps, join.Name)
 
 	ackOK := Frame{Type: FrameOK}
 	err = SendFrame(ctx, conn, ackOK)
@@ -627,7 +629,8 @@ func (rc *RunControl) processLog(msg MsgFrame) {
 func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 	var berr []error
 
-	for _, proc := range rc.procs {
+	for _, name := range rc.deps {
+		proc := rc.procs[name]
 		rc.msg.Debugf("sending cmd %v to %q...", cmd, proc.name)
 		err := sendCmd(ctx, proc.cmd, cmd, nil)
 		if err != nil {
@@ -764,6 +767,11 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 	err := rc.dag.Analyze()
 	if err != nil {
 		return xerrors.Errorf("could not create DAG of data dependencies: %w", err)
+	}
+
+	err = rc.buildDeps()
+	if err != nil {
+		return xerrors.Errorf("could not build dependencies-ordered list of tdaq processes: %w", err)
 	}
 
 	err = rc.broadcast(ctx, CmdInit)
@@ -975,4 +983,46 @@ func (rc *RunControl) providerOf(p EndPoint) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func (rc *RunControl) buildDeps() error {
+	epts := make(map[string]struct{}, len(rc.procs))
+	done := make([]string, 0, len(rc.procs))
+	todo := make(map[string]struct{})
+	for name := range rc.procs {
+		todo[name] = struct{}{}
+	}
+
+	depsOf := func(name string) int {
+		proc := rc.procs[name]
+		n := len(proc.ieps)
+		for _, ep := range proc.ieps {
+			if _, ok := epts[ep.Name]; ok {
+				n--
+			}
+		}
+		return n
+	}
+
+loop:
+	for {
+		if len(todo) == 0 {
+			break loop
+		}
+		for name := range todo {
+			inputs := depsOf(name)
+			if inputs == 0 {
+				done = append(done, name)
+				delete(todo, name)
+				for _, ep := range rc.procs[name].oeps {
+					epts[ep.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	rc.msg.Infof("deps: %q", done)
+	rc.deps = done
+
+	return nil
 }
