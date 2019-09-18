@@ -28,7 +28,8 @@ type imgr struct {
 	ep  map[string]InputHandler
 	cfg ConfigCmd
 
-	done chan struct{}
+	grp  *errgroup.Group
+	done chan error
 }
 
 func newIMgr(srv *Server) *imgr {
@@ -122,18 +123,26 @@ func (mgr *imgr) onStart(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	mgr.done = make(chan struct{})
+	mgr.done = make(chan error)
 
 	if len(mgr.ps) == 0 {
 		close(mgr.done)
 		return nil
 	}
 
+	mgr.grp = new(errgroup.Group)
 	for k := range mgr.ps {
-		conn := mgr.ps[k]
+		ept := k
+		src := mgr.ps[k]
 		fct := mgr.ep[k]
-		go mgr.run(ctx, k, conn, fct)
+		mgr.grp.Go(func() error {
+			return mgr.run(ctx, ept, src, fct)
+		})
 	}
+
+	go func() {
+		mgr.done <- mgr.grp.Wait()
+	}()
 
 	return nil
 }
@@ -153,13 +162,11 @@ func (mgr *imgr) onStop(ctx Context) error {
 	return xerrors.Errorf("impossible")
 }
 
-func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) {
-	defer close(mgr.done)
-
+func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) error {
 	for {
 		select {
 		case <-ctx.Ctx.Done():
-			return
+			return nil
 		default:
 			frame, err := RecvFrame(ctx.Ctx, conn)
 			switch {
@@ -170,16 +177,17 @@ func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) {
 				default:
 					ctx.Msg.Errorf("could not retrieve data frame for %q (state=%v): %+v", ep, state, err)
 				}
-				return
+				return nil
 			case err == nil:
 				if frame.Type == FrameEOF {
 					// no more data
-					return
+					return nil
 				}
 
 				err = f(ctx, frame)
 				if err != nil {
 					ctx.Msg.Errorf("could not process data frame for %q: %v", ep, err)
+					continue
 				}
 			}
 		}
