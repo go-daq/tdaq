@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
+	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/tdaqio"
@@ -43,7 +44,7 @@ func TestSequence(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {

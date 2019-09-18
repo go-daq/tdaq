@@ -7,7 +7,6 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"io"
 	"net"
 	"sort"
 	"sync"
@@ -491,20 +490,4 @@ func (o *oport) send(data []byte) error {
 		})
 	}
 	return grp.Wait()
-}
-
-type syncwriter struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-func newSyncWriter(w io.Writer) *syncwriter {
-	return &syncwriter{w: w}
-}
-
-func (w *syncwriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	n, err := w.w.Write(p)
-	w.mu.Unlock()
-	return n, err
 }

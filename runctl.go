@@ -17,6 +17,7 @@ import (
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/internal/dflow"
+	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
@@ -103,7 +104,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 
 	stdout = io.MultiWriter(stdout, flog)
-	out := newSyncWriter(stdout)
+	out := iomux.NewWriter(stdout)
 
 	if cfg.HBeatFreq <= 0 {
 		cfg.HBeatFreq = 5 * time.Second
