@@ -10,9 +10,16 @@ import (
 	"github.com/go-daq/tdaq"
 )
 
+// I64Processor consumes int64 data from an input end-point and publishes the
+// massaged int64 data on an output end-point.
 type I64Processor struct {
 	n  int64
 	ch chan int64
+}
+
+func (dev *I64Processor) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /config command...")
+	return nil
 }
 
 func (dev *I64Processor) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {

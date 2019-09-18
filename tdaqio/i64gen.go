@@ -11,8 +11,9 @@ import (
 	"github.com/go-daq/tdaq"
 )
 
+// I64Gen publishes int64 data on an output end-point.
 type I64Gen struct {
-	Start int64
+	Start int64 // starting value of the sequence of int64 data.
 
 	n  int64
 	ch chan int64
