@@ -266,6 +266,243 @@ loop:
 	}
 }
 
+func TestAdder(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlDebug
+		nprocs  = 4
+	)
+
+	port, err := tcputil.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tcputil.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	wbuf := new(bytes.Buffer)
+	stdout := iomux.NewWriter(wbuf)
+
+	fname, err := ioutil.TempFile("", "tdaq-")
+	if err != nil {
+		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+	}
+	fname.Close()
+	defer func() {
+		if err != nil {
+			raw, err := ioutil.ReadFile(fname.Name())
+			if err == nil {
+				t.Logf("log-file:\n%v\n", string(raw))
+			}
+		}
+		os.Remove(fname.Name())
+	}()
+
+	cfg := config.RunCtl{
+		Name:      "run-ctl",
+		Level:     rclvl,
+		RunCtl:    rcAddr,
+		Web:       webAddr,
+		LogFile:   fname.Name(),
+		HBeatFreq: 50 * time.Millisecond,
+	}
+
+	rc, err := tdaq.NewRunControl(cfg, stdout)
+	if err != nil {
+		t.Fatalf("could not create run-ctl: %+v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	grp, ctx := errgroup.WithContext(ctx)
+
+	errc := make(chan error)
+	go func() {
+		errc <- rc.Run(ctx)
+	}()
+
+	type state struct {
+		name string
+		v    *int64
+	}
+
+	var (
+		proc1  = state{name: "gen-1"}
+		proc2  = state{name: "gen-2"}
+		proc3  = state{name: "adder"}
+		proc3n = new(int64)
+		proc4  = state{name: "dumper"}
+	)
+
+	grp.Go(func() error {
+		dev := xdaq.I64Gen{}
+		proc1.v = &dev.N
+
+		cfg := config.Process{
+			Name:   proc1.name,
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, stdout)
+		srv.CmdHandle("/config", dev.OnConfig)
+		srv.CmdHandle("/init", dev.OnInit)
+		srv.CmdHandle("/start", dev.OnStart)
+		srv.CmdHandle("/stop", dev.OnStop)
+		srv.CmdHandle("/reset", dev.OnReset)
+		srv.CmdHandle("/quit", dev.OnQuit)
+
+		srv.OutputHandle("/i64-1", dev.Output)
+		srv.RunHandle(dev.Loop)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	grp.Go(func() error {
+		dev := xdaq.I64Gen{}
+		proc2.v = &dev.N
+
+		cfg := config.Process{
+			Name:   proc2.name,
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, stdout)
+		srv.CmdHandle("/config", dev.OnConfig)
+		srv.CmdHandle("/init", dev.OnInit)
+		srv.CmdHandle("/start", dev.OnStart)
+		srv.CmdHandle("/stop", dev.OnStop)
+		srv.CmdHandle("/reset", dev.OnReset)
+		srv.CmdHandle("/quit", dev.OnQuit)
+
+		srv.OutputHandle("/i64-2", dev.Output)
+		srv.RunHandle(dev.Loop)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	grp.Go(func() error {
+		dev := xdaq.I64Adder{}
+		proc3.v = &dev.V
+		proc3n = &dev.N
+
+		cfg := config.Process{
+			Name:   proc3.name,
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, stdout)
+		srv.CmdHandle("/config", dev.OnConfig)
+		srv.CmdHandle("/init", dev.OnInit)
+		srv.CmdHandle("/start", dev.OnStart)
+		srv.CmdHandle("/stop", dev.OnStop)
+		srv.CmdHandle("/reset", dev.OnReset)
+		srv.CmdHandle("/quit", dev.OnQuit)
+
+		srv.InputHandle("/i64-1", dev.Left)
+		srv.InputHandle("/i64-2", dev.Right)
+		srv.OutputHandle("/sum", dev.Output)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	grp.Go(func() error {
+		dev := xdaq.I64Dumper{}
+		proc4.v = &dev.V
+
+		cfg := config.Process{
+			Name:   proc4.name,
+			Level:  proclvl,
+			RunCtl: rcAddr,
+		}
+		srv := tdaq.New(cfg, stdout)
+		srv.CmdHandle("/config", dev.OnConfig)
+		srv.CmdHandle("/init", dev.OnInit)
+		srv.CmdHandle("/start", dev.OnStart)
+		srv.CmdHandle("/stop", dev.OnStop)
+		srv.CmdHandle("/reset", dev.OnReset)
+		srv.CmdHandle("/quit", dev.OnQuit)
+
+		srv.InputHandle("/sum", dev.Input)
+
+		err := srv.Run(ctx)
+		return err
+	})
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+loop:
+	for {
+		select {
+		case <-timeout.C:
+			t.Fatalf("devices did not connect")
+		default:
+			n := rc.NumClients()
+			if n == nprocs {
+				break loop
+			}
+		}
+	}
+
+	for _, tt := range []struct {
+		name string
+		cmd  tdaq.CmdType
+	}{
+		{"/config", tdaq.CmdConfig},
+		{"/init", tdaq.CmdInit},
+		{"/reset", tdaq.CmdReset},
+		{"/config", tdaq.CmdConfig},
+		{"/init", tdaq.CmdInit},
+		{"/start", tdaq.CmdStart},
+		{"/status", tdaq.CmdStatus},
+		{"/stop", tdaq.CmdStop},
+		{"/quit", tdaq.CmdQuit},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		func() {
+			defer cancel()
+			err = rc.Do(ctx, tt.cmd)
+			if err != nil {
+				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
+			}
+			if tt.name == "/start" {
+				time.Sleep(100 * time.Millisecond)
+			}
+			if tt.name == "/stop" {
+				switch {
+				case *proc3.v != 2*(*proc3n-1):
+					err = xerrors.Errorf("stage-2 error")
+					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc3.name+"-sum", *proc3.v, proc3.name+"-n", *proc3n)
+				case *proc3.v != *proc4.v:
+					err = xerrors.Errorf("stage-3 error")
+					t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
+				}
+			}
+		}()
+	}
+
+	err = grp.Wait()
+	if err != nil {
+		t.Fatalf("could not run device run-group: %+v", err)
+	}
+
+	err = <-errc
+	if err != nil && !xerrors.Is(err, context.Canceled) {
+		t.Fatalf("error shutting down run-ctl: %+v", err)
+	}
+}
+
 func TestScaler(t *testing.T) {
 	t.Parallel()
 
