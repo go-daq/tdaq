@@ -18,7 +18,7 @@ import (
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
-	"github.com/go-daq/tdaq/tdaqio"
+	"github.com/go-daq/tdaq/xdaq"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -86,7 +86,7 @@ func TestRunControlAPI(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Gen{}
+		dev := xdaq.I64Gen{}
 		cfg := config.Process{
 			Name:   "data-src",
 			Level:  proclvl,
@@ -111,7 +111,7 @@ func TestRunControlAPI(t *testing.T) {
 	for _, i := range []int{1, 2, 3} {
 		name := fmt.Sprintf("data-sink-%d", i)
 		grp.Go(func() error {
-			dev := tdaqio.I64Dumper{}
+			dev := xdaq.I64Dumper{}
 
 			cfg := config.Process{
 				Name:   name,
@@ -248,7 +248,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Gen{}
+		dev := xdaq.I64Gen{}
 
 		cfg := config.Process{
 			Name:   "proc-1",
@@ -265,7 +265,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Dumper{}
+		dev := xdaq.I64Dumper{}
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
@@ -371,7 +371,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Gen{}
+		dev := xdaq.I64Gen{}
 
 		cfg := config.Process{
 			Name:   "proc-1",
@@ -388,7 +388,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Gen{}
+		dev := xdaq.I64Gen{}
 		cfg := config.Process{
 			Name:   "proc-2",
 			Level:  proclvl,
@@ -523,7 +523,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 	}()
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Dumper{}
+		dev := xdaq.I64Dumper{}
 
 		cfg := config.Process{
 			Name:   "proc-1",

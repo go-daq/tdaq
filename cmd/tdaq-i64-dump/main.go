@@ -13,7 +13,7 @@ import (
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/flags"
 	"github.com/go-daq/tdaq/log"
-	"github.com/go-daq/tdaq/tdaqio"
+	"github.com/go-daq/tdaq/xdaq"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 
 	cmd := flags.New()
 
-	dev := tdaqio.I64Dumper{}
+	dev := xdaq.I64Dumper{}
 	srv := tdaq.New(cmd, os.Stdout)
 	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)

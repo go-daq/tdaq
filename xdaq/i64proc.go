@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tdaqio // import "github.com/go-daq/tdaq/tdaqio"
+package xdaq // import "github.com/go-daq/tdaq/xdaq"
 
 import (
 	"encoding/binary"

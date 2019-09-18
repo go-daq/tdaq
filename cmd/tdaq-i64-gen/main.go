@@ -14,7 +14,7 @@ import (
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/flags"
 	"github.com/go-daq/tdaq/log"
-	"github.com/go-daq/tdaq/tdaqio"
+	"github.com/go-daq/tdaq/xdaq"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 
 	cmd := flags.New()
 
-	dev := tdaqio.I64Gen{
+	dev := xdaq.I64Gen{
 		Start: *start,
 		Freq:  *freq,
 	}

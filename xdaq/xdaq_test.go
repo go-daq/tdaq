@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tdaqio_test // import "github.com/go-daq/tdaq/tdaqio"
+package xdaq_test // import "github.com/go-daq/tdaq/xdaq"
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ import (
 	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
-	"github.com/go-daq/tdaq/tdaqio"
+	"github.com/go-daq/tdaq/xdaq"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -98,7 +98,7 @@ func TestSequence(t *testing.T) {
 	)
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Gen{}
+		dev := xdaq.I64Gen{}
 		proc1.v = &dev.N
 
 		cfg := config.Process{
@@ -122,7 +122,7 @@ func TestSequence(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Processor{}
+		dev := xdaq.I64Processor{}
 		proc2.v = &dev.V
 
 		cfg := config.Process{
@@ -146,7 +146,7 @@ func TestSequence(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Dumper{}
+		dev := xdaq.I64Dumper{}
 		proc3.v = &dev.V
 
 		cfg := config.Process{
@@ -169,7 +169,7 @@ func TestSequence(t *testing.T) {
 	})
 
 	grp.Go(func() error {
-		dev := tdaqio.I64Dumper{}
+		dev := xdaq.I64Dumper{}
 		proc4.v = &dev.V
 
 		cfg := config.Process{
