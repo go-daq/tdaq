@@ -461,22 +461,6 @@ func (o *oport) onReset() error {
 	return err
 }
 
-func (o *oport) onStop() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	var err error
-	for _, conn := range o.conns {
-		e := conn.Close()
-		if e != nil {
-			err = e
-		}
-	}
-	o.conns = o.conns[:0]
-
-	return err
-}
-
 func (o *oport) send(data []byte) error {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
