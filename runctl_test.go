@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/config"
+	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/xdaq"
@@ -44,7 +45,7 @@ func TestRunControlAPI(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {
@@ -92,7 +93,7 @@ func TestRunControlAPI(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/reset", dev.OnReset)
@@ -118,7 +119,7 @@ func TestRunControlAPI(t *testing.T) {
 				Level:  proclvl,
 				RunCtl: rcAddr,
 			}
-			srv := tdaq.New(cfg, ioutil.Discard)
+			srv := tdaq.New(cfg, stdout)
 			srv.CmdHandle("/init", dev.OnInit)
 			srv.CmdHandle("/reset", dev.OnReset)
 			srv.CmdHandle("/stop", dev.OnStop)
@@ -136,7 +137,6 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
 			n := rc.NumClients()
@@ -174,13 +174,11 @@ loop:
 
 	err = grp.Wait()
 	if err != nil {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("could not run device run-group: %+v", err)
 	}
 
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 }
@@ -206,7 +204,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {
@@ -255,7 +253,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
@@ -271,7 +269,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.InputHandle("/i64", dev.Input)
 		err := srv.Run(ctx)
 		return err
@@ -284,7 +282,6 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		case err := <-errc:
 			if err == nil {
@@ -329,7 +326,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {
@@ -378,7 +375,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.OutputHandle("/i64", dev.Output)
 
 		srv.RunHandle(dev.Loop)
@@ -394,7 +391,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.OutputHandle("/i64", dev.Output)
 		err := srv.Run(ctx)
 		return err
@@ -406,7 +403,6 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
 			n := rc.NumClients()
@@ -448,13 +444,11 @@ loop:
 
 	err = grp.Wait()
 	if err != nil {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("could not run device run-group: %+v", err)
 	}
 
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 
@@ -481,7 +475,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {
@@ -530,7 +524,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.InputHandle("/i64", dev.Input)
 
 		err := srv.Run(ctx)
@@ -543,7 +537,6 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
 			n := rc.NumClients()
@@ -584,13 +577,11 @@ loop:
 
 	err = grp.Wait()
 	if err != nil {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("could not run device run-group: %+v", err)
 	}
 
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 

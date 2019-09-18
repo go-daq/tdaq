@@ -44,7 +44,8 @@ func TestSequence(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := iomux.NewWriter(new(bytes.Buffer))
+	wbuf := new(bytes.Buffer)
+	stdout := iomux.NewWriter(wbuf)
 
 	fname, err := ioutil.TempFile("", "tdaq-")
 	if err != nil {
@@ -197,7 +198,6 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			t.Logf("stdout:\n%v\n", stdout.String())
 			t.Fatalf("devices did not connect")
 		default:
 			n := rc.NumClients()
@@ -248,13 +248,11 @@ loop:
 
 	err = grp.Wait()
 	if err != nil {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("could not run device run-group: %+v", err)
 	}
 
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 
