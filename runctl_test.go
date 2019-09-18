@@ -18,6 +18,7 @@ import (
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/internal/tcputil"
+	"github.com/go-daq/tdaq/job"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/xdaq"
 	"golang.org/x/sync/errgroup"
@@ -45,105 +46,60 @@ func TestRunControlAPI(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := iomux.NewWriter(new(bytes.Buffer))
-
-	fname, err := ioutil.TempFile("", "tdaq-")
-	if err != nil {
-		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
-	}
-	fname.Close()
+	stdout := new(bytes.Buffer)
+	app := job.New(stdout)
 	defer func() {
 		if err != nil {
-			raw, err := ioutil.ReadFile(fname.Name())
-			if err == nil {
-				t.Logf("log-file:\n%v\n", string(raw))
+			t.Logf("stdout:\n%v\n", stdout.String())
+		}
+	}()
+
+	app.Cfg.RunCtl = rcAddr
+	app.Cfg.Web = webAddr
+	app.Cfg.Level = rclvl
+
+	app.Add(
+		func() job.Proc {
+			dev := new(xdaq.I64Gen)
+			return job.Proc{
+				Dev:   dev,
+				Level: proclvl,
+				Name:  "data-src",
+				Cmds: job.CmdHandlers{
+					"/config": dev.OnConfig,
+					"/init":   dev.OnInit,
+					"/reset":  dev.OnReset,
+					"/start":  dev.OnStart,
+					"/stop":   dev.OnStop,
+					"/quit":   dev.OnQuit,
+				},
+				Outputs: job.OutputHandlers{
+					"/i64": dev.Output,
+				},
+				Handlers: job.RunHandlers{dev.Loop},
 			}
-		}
-		os.Remove(fname.Name())
-	}()
-
-	cfg := config.RunCtl{
-		Name:      "run-ctl",
-		Level:     rclvl,
-		RunCtl:    rcAddr,
-		Web:       webAddr,
-		LogFile:   fname.Name(),
-		HBeatFreq: 50 * time.Millisecond,
-	}
-
-	rc, err := tdaq.NewRunControl(cfg, stdout)
-	if err != nil {
-		t.Fatalf("could not create run-ctl: %+v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	grp, ctx := errgroup.WithContext(ctx)
-
-	errc := make(chan error)
-	go func() {
-		errc <- rc.Run(ctx)
-	}()
-
-	grp.Go(func() error {
-		dev := xdaq.I64Gen{}
-		cfg := config.Process{
-			Name:   "data-src",
-			Level:  proclvl,
-			RunCtl: rcAddr,
-		}
-		srv := tdaq.New(cfg, stdout)
-		srv.CmdHandle("/config", dev.OnConfig)
-		srv.CmdHandle("/init", dev.OnInit)
-		srv.CmdHandle("/reset", dev.OnReset)
-		srv.CmdHandle("/start", dev.OnStart)
-		srv.CmdHandle("/stop", dev.OnStop)
-		srv.CmdHandle("/quit", dev.OnQuit)
-
-		srv.OutputHandle("/i64", dev.Output)
-
-		srv.RunHandle(dev.Loop)
-
-		err := srv.Run(ctx)
-		return err
-	})
+		}(),
+	)
 
 	for _, i := range []int{1, 2, 3} {
 		name := fmt.Sprintf("data-sink-%d", i)
-		grp.Go(func() error {
-			dev := xdaq.I64Dumper{}
-
-			cfg := config.Process{
-				Name:   name,
-				Level:  proclvl,
-				RunCtl: rcAddr,
-			}
-			srv := tdaq.New(cfg, stdout)
-			srv.CmdHandle("/init", dev.OnInit)
-			srv.CmdHandle("/reset", dev.OnReset)
-			srv.CmdHandle("/stop", dev.OnStop)
-
-			srv.InputHandle("/i64", dev.Input)
-
-			err := srv.Run(context.Background())
-			return err
-		})
+		app.Add(
+			func() job.Proc {
+				dev := new(xdaq.I64Dumper)
+				return job.Proc{
+					Dev:  dev,
+					Name: name,
+					Inputs: job.InputHandlers{
+						"/i64": dev.Input,
+					},
+				}
+			}(),
+		)
 	}
 
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-loop:
-	for {
-		select {
-		case <-timeout.C:
-			t.Fatalf("devices did not connect")
-		default:
-			n := rc.NumClients()
-			if n == 4 {
-				break loop
-			}
-		}
+	err = app.Start()
+	if err != nil {
+		t.Fatalf("could not start job: %+v", err)
 	}
 
 	for _, tt := range []struct {
@@ -165,21 +121,16 @@ loop:
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		func() {
 			defer cancel()
-			err = rc.Do(ctx, tt.cmd)
+			err = app.Do(ctx, tt.cmd)
 			if err != nil {
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 		}()
 	}
 
-	err = grp.Wait()
+	err = app.Wait()
 	if err != nil {
-		t.Fatalf("could not run device run-group: %+v", err)
-	}
-
-	err = <-errc
-	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Fatalf("error shutting down run-ctl: %+v", err)
+		t.Fatalf("could not run app: %+v", err)
 	}
 }
 
