@@ -192,7 +192,8 @@ type omgr struct {
 	ps  map[string]*oport
 	ep  map[string]OutputHandler
 
-	done chan struct{}
+	grp  *errgroup.Group
+	done chan error
 }
 
 func newOMgr(srv *Server) *omgr {
@@ -274,18 +275,26 @@ func (mgr *omgr) onStart(ctx Context) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	mgr.done = make(chan struct{})
+	mgr.done = make(chan error)
 
 	if len(mgr.ps) == 0 {
 		close(mgr.done)
 		return nil
 	}
 
+	mgr.grp = new(errgroup.Group)
 	for k := range mgr.ps {
+		ept := k
 		out := mgr.ps[k]
 		fct := mgr.ep[k]
-		go mgr.run(ctx, k, out, fct)
+		mgr.grp.Go(func() error {
+			return mgr.run(ctx, ept, out, fct)
+		})
 	}
+
+	go func() {
+		mgr.done <- mgr.grp.Wait()
+	}()
 
 	return nil
 }
@@ -304,9 +313,7 @@ func (mgr *omgr) onStop(ctx Context) error {
 	return xerrors.Errorf("impossible")
 }
 
-func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
-	defer close(mgr.done)
-
+func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
 	buf := new(bytes.Buffer)
 
 	for {
@@ -316,8 +323,9 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 			err := op.send(eofFrame)
 			if err != nil {
 				ctx.Msg.Errorf("could not send eof-frame for %q (state=%v->%v): %+v", ep, mgr.srv.getCurState(), mgr.srv.getNextState(), err)
+
 			}
-			return
+			return nil
 		default:
 			resp := Frame{Type: FrameData, Path: ep}
 			err := f(ctx, &resp)
@@ -345,7 +353,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) {
 					ctx.Msg.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
 				}
 				if err, ok := err.(net.Error); ok && !err.Temporary() {
-					return
+					return xerrors.Errorf("could not send data frame for %q: %w", ep, err)
 				}
 				continue
 			}
