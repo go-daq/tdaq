@@ -236,10 +236,13 @@ loop:
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.v-1 != *proc2.v:
+					err = xerrors.Errorf("stage-1 error")
 					t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
 				case *proc2.v*2 != *proc3.v:
+					err = xerrors.Errorf("stage-2 error")
 					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
 				case *proc3.v != *proc4.v:
+					err = xerrors.Errorf("stage-3 error")
 					t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
 				}
 			}
@@ -254,15 +257,6 @@ loop:
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
-	}
-
-	switch {
-	case *proc1.v-1 != *proc2.v:
-		t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
-	case *proc2.v*2 != *proc3.v:
-		t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
-	case *proc3.v != *proc4.v:
-		t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
 	}
 }
 
@@ -734,9 +728,7 @@ loop:
 		{"/config", tdaq.CmdConfig},
 		{"/init", tdaq.CmdInit},
 		{"/start", tdaq.CmdStart},
-		{"/stop", tdaq.CmdStop},
 		{"/status", tdaq.CmdStatus},
-		{"/start", tdaq.CmdStart},
 		{"/stop", tdaq.CmdStop},
 		{"/quit", tdaq.CmdQuit},
 	} {
@@ -753,10 +745,13 @@ loop:
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.v != *proc2.v:
+					err = xerrors.Errorf("stage-1 error")
 					t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
 				case int64(float64(*proc2.v)*0.5) != int64(float64(*proc3.v)):
+					err = xerrors.Errorf("stage-2 error")
 					t.Fatalf("stage-2: error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
 				case *proc5.v != 0:
+					err = xerrors.Errorf("stage-3 error")
 					t.Fatalf("stage-3: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc5.name, *proc5.v)
 				}
 			}
@@ -771,15 +766,6 @@ loop:
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
-	}
-
-	switch {
-	case *proc1.v != *proc2.v:
-		t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
-	case int64(float64(*proc2.v)*0.5) != int64(float64(*proc3.v)):
-		t.Fatalf("stage-2: error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
-	case *proc5.v != 0:
-		t.Fatalf("stage-3: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc5.name, *proc5.v)
 	}
 }
 
@@ -1093,12 +1079,16 @@ loop:
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.v != *proc2.v:
+					err = xerrors.Errorf("stage-1 error")
 					t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
 				case *proc2.v != *proc3.v+*proc4.v:
+					err = xerrors.Errorf("stage-2 error")
 					t.Fatalf("stage-2: error: %q:%v, %q:%v %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v, proc4.name, *proc4.v)
 				case *proc1.v != *proc6.v+*proc7.v:
+					err = xerrors.Errorf("stage-3 error")
 					t.Fatalf("stage-3: error: %q:%v, %q:%v %q:%v", proc1.name, *proc1.v, proc6.name, *proc6.v, proc7.name, *proc7.v)
 				case *proc7.v != 0:
+					err = xerrors.Errorf("stage-4 error")
 					t.Fatalf("stage-4: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc7.name, *proc7.v)
 				}
 			}
@@ -1113,16 +1103,5 @@ loop:
 	err = <-errc
 	if err != nil && !xerrors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
-	}
-
-	switch {
-	case *proc1.v != *proc2.v:
-		t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
-	case *proc2.v != *proc3.v+*proc4.v:
-		t.Fatalf("stage-2: error: %q:%v, %q:%v %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v, proc4.name, *proc4.v)
-	case *proc1.v != *proc6.v+*proc7.v:
-		t.Fatalf("stage-3: error: %q:%v, %q:%v %q:%v", proc1.name, *proc1.v, proc6.name, *proc6.v, proc7.name, *proc7.v)
-	case *proc7.v != 0:
-		t.Fatalf("stage-4: error: %q:%v, %q:%v", proc1.name, *proc1.v, proc7.name, *proc7.v)
 	}
 }
