@@ -27,7 +27,7 @@ func TestSequence(t *testing.T) {
 
 	const (
 		rclvl   = log.LvlDebug
-		proclvl = log.LvlInfo
+		proclvl = log.LvlDebug
 		nprocs  = 4
 	)
 
@@ -85,15 +85,28 @@ func TestSequence(t *testing.T) {
 		errc <- rc.Run(ctx)
 	}()
 
+	type state struct {
+		name string
+		v    *int64
+	}
+
+	var (
+		proc1 = state{name: "proc-1"}
+		proc2 = state{name: "proc-2"}
+		proc3 = state{name: "proc-3.1"}
+		proc4 = state{name: "proc-3.2"}
+	)
+
 	grp.Go(func() error {
 		dev := tdaqio.I64Gen{}
+		proc1.v = &dev.N
 
 		cfg := config.Process{
-			Name:   "proc-1",
+			Name:   proc1.name,
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/start", dev.OnStart)
@@ -102,6 +115,7 @@ func TestSequence(t *testing.T) {
 		srv.CmdHandle("/quit", dev.OnQuit)
 
 		srv.OutputHandle("/i64-1", dev.Output)
+		srv.RunHandle(dev.Loop)
 
 		err := srv.Run(ctx)
 		return err
@@ -109,13 +123,14 @@ func TestSequence(t *testing.T) {
 
 	grp.Go(func() error {
 		dev := tdaqio.I64Processor{}
+		proc2.v = &dev.V
 
 		cfg := config.Process{
-			Name:   "proc-2",
+			Name:   proc2.name,
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/start", dev.OnStart)
@@ -132,13 +147,14 @@ func TestSequence(t *testing.T) {
 
 	grp.Go(func() error {
 		dev := tdaqio.I64Dumper{}
+		proc3.v = &dev.V
 
 		cfg := config.Process{
-			Name:   "proc-3.1",
+			Name:   proc3.name,
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/start", dev.OnStart)
@@ -154,13 +170,14 @@ func TestSequence(t *testing.T) {
 
 	grp.Go(func() error {
 		dev := tdaqio.I64Dumper{}
+		proc4.v = &dev.V
 
 		cfg := config.Process{
-			Name:   "proc-3.2",
+			Name:   proc4.name,
 			Level:  proclvl,
 			RunCtl: rcAddr,
 		}
-		srv := tdaq.New(cfg, ioutil.Discard)
+		srv := tdaq.New(cfg, stdout)
 		srv.CmdHandle("/config", dev.OnConfig)
 		srv.CmdHandle("/init", dev.OnInit)
 		srv.CmdHandle("/start", dev.OnStart)
@@ -214,7 +231,17 @@ loop:
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 			if tt.name == "/start" {
-				time.Sleep(1 * time.Second)
+				time.Sleep(100 * time.Millisecond)
+			}
+			if tt.name == "/stop" {
+				switch {
+				case *proc1.v-1 != *proc2.v:
+					t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
+				case *proc2.v*2 != *proc3.v:
+					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
+				case *proc3.v != *proc4.v:
+					t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
+				}
 			}
 		}()
 	}
@@ -229,5 +256,14 @@ loop:
 	if err != nil && !xerrors.Is(err, context.Canceled) {
 		t.Logf("stdout:\n%v\n", stdout.String())
 		t.Fatalf("error shutting down run-ctl: %+v", err)
+	}
+
+	switch {
+	case *proc1.v-1 != *proc2.v:
+		t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
+	case *proc2.v*2 != *proc3.v:
+		t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
+	case *proc3.v != *proc4.v:
+		t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
 	}
 }
