@@ -12,7 +12,8 @@ import (
 
 // I64Dumper dumps int64 values from an input end-point.
 type I64Dumper struct {
-	n int64
+	N int64 // counter of values seen since /init
+	V int64 // last value seen
 }
 
 func (dev *I64Dumper) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
@@ -22,13 +23,14 @@ func (dev *I64Dumper) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Fram
 
 func (dev *I64Dumper) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
-	dev.n = 0
+	dev.N = +0
+	dev.V = -1
 	return nil
 }
 
 func (dev *I64Dumper) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /reset command...")
-	dev.n = 0
+	dev.N = +0
 	return nil
 }
 
@@ -38,8 +40,9 @@ func (dev *I64Dumper) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame
 }
 
 func (dev *I64Dumper) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	n := dev.n
-	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
+	n := dev.N
+	v := dev.V
+	ctx.Msg.Infof("received /stop command... v=%d -> n=%d", v, n)
 	return nil
 }
 
@@ -49,8 +52,8 @@ func (dev *I64Dumper) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame)
 }
 
 func (dev *I64Dumper) Input(ctx tdaq.Context, src tdaq.Frame) error {
-	v := int64(binary.LittleEndian.Uint64(src.Body))
-	dev.n++
-	ctx.Msg.Debugf("received: %d -> %d", v, dev.n)
+	dev.V = int64(binary.LittleEndian.Uint64(src.Body))
+	dev.N++
+	ctx.Msg.Debugf("received: %d -> %d", dev.V, dev.N)
 	return nil
 }

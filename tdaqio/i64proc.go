@@ -13,7 +13,9 @@ import (
 // I64Processor consumes int64 data from an input end-point and publishes the
 // massaged int64 data on an output end-point.
 type I64Processor struct {
-	n  int64
+	N int64 // counter of values seen since /init
+	V int64 // last value seen
+
 	ch chan int64
 }
 
@@ -24,14 +26,15 @@ func (dev *I64Processor) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.F
 
 func (dev *I64Processor) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
-	dev.n = 0
+	dev.N = +0
+	dev.V = -1
 	dev.ch = make(chan int64)
 	return nil
 }
 
 func (dev *I64Processor) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /reset command...")
-	dev.n = 0
+	dev.N = 0
 	dev.ch = make(chan int64)
 	return nil
 }
@@ -42,21 +45,22 @@ func (dev *I64Processor) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Fr
 }
 
 func (dev *I64Processor) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	n := dev.n
-	ctx.Msg.Debugf("received /stop command... -> n=%d", n)
+	n := dev.N
+	v := dev.V
+	ctx.Msg.Infof("received /stop command... v=%d -> n=%d", v, n)
 	return nil
 }
 
 func (dev *I64Processor) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received %q command...", req.Path)
+	ctx.Msg.Debugf("received /quit command...")
 	return nil
 }
 
 func (dev *I64Processor) Input(ctx tdaq.Context, src tdaq.Frame) error {
-	v := int64(binary.LittleEndian.Uint64(src.Body))
-	dev.n++
-	ctx.Msg.Debugf("received: %d -> %d", v, dev.n)
-	dev.ch <- v
+	dev.V = int64(binary.LittleEndian.Uint64(src.Body))
+	dev.N++
+	ctx.Msg.Debugf("received: %d -> %d", dev.V, dev.N)
+	dev.ch <- dev.V
 	return nil
 }
 

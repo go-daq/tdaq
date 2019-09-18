@@ -9,6 +9,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"time"
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/flags"
@@ -20,18 +21,23 @@ func main() {
 
 	var (
 		oname = flag.String("o", "/adc", "name of the output int64 data stream end-point")
+		start = flag.Int64("start", 10, "starting value of the sequence of int64 values")
+		freq  = flag.Duration("freq", 10*time.Millisecond, "frequency of int64 data stream generation")
 	)
 
 	cmd := flags.New()
 
 	dev := tdaqio.I64Gen{
-		Start: 10,
+		Start: *start,
+		Freq:  *freq,
 	}
 
 	srv := tdaq.New(cmd, os.Stdout)
+	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/start", dev.OnStart)
 	srv.CmdHandle("/stop", dev.OnStop)
+	srv.CmdHandle("/reset", dev.OnReset)
 	srv.CmdHandle("/quit", dev.OnQuit)
 
 	srv.OutputHandle(*oname, dev.Output)

@@ -26,9 +26,11 @@ func main() {
 
 	dev := tdaqio.I64Dumper{}
 	srv := tdaq.New(cmd, os.Stdout)
+	srv.CmdHandle("/config", dev.OnConfig)
 	srv.CmdHandle("/init", dev.OnInit)
 	srv.CmdHandle("/start", dev.OnStart)
 	srv.CmdHandle("/stop", dev.OnStop)
+	srv.CmdHandle("/reset", dev.OnReset)
 	srv.CmdHandle("/quit", dev.OnQuit)
 
 	srv.InputHandle(*iname, dev.Input)
