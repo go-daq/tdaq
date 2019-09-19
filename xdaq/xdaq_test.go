@@ -7,6 +7,8 @@ package xdaq_test // import "github.com/go-daq/tdaq/xdaq"
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,22 +67,28 @@ func TestSequence(t *testing.T) {
 		proc4 = pstate{name: "proc-3.2"}
 	)
 
+	var (
+		gen  *testI64Gen
+		dmp1 *testI64Dumper
+		dmp2 *testI64Dumper
+	)
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			proc1.v = &dev.N
+			gen = new(testI64Gen)
+			proc1.n = &gen.N
+			proc1.v = &gen.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   gen,
 				Name:  proc1.name,
 				Level: proclvl,
 				Outputs: job.OutputHandlers{
-					"/i64-1": dev.Output,
+					"/i64-1": gen.Output,
 				},
-				Handlers: job.RunHandlers{dev.Loop},
 			}
 		}(),
 		func() job.Proc {
 			dev := new(xdaq.I64Processor)
+			proc2.n = &dev.N
 			proc2.v = &dev.V
 			return job.Proc{
 				Dev:   dev,
@@ -95,27 +103,33 @@ func TestSequence(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc3.v = &dev.V
+			dmp1 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc3.n = &dmp1.N
+			proc3.v = &dmp1.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp1,
 				Name:  proc3.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-2": dev.Input,
+					"/i64-2": dmp1.Input,
 				},
 			}
 
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc4.v = &dev.V
+			dmp2 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc4.n = &dmp2.N
+			proc4.v = &dmp2.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp2,
 				Name:  proc4.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-2": dev.Input,
+					"/i64-2": dmp2.Input,
 				},
 			}
 
@@ -139,25 +153,36 @@ func TestSequence(t *testing.T) {
 		{"/start", tdaq.CmdStart},
 		{"/stop", tdaq.CmdStop},
 		{"/status", tdaq.CmdStatus},
-		{"/start", tdaq.CmdStart},
-		{"/stop", tdaq.CmdStop},
 		{"/quit", tdaq.CmdQuit},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		const N = 15
 		func() {
 			defer cancel()
+			if tt.name == "/start" {
+				gen.mu.Lock()
+				gen.N = 0
+				gen.V = 0
+				dmp1.want = N
+				dmp2.want = N
+				dmp1.timer = time.NewTimer(1 * time.Second)
+				dmp2.timer = time.NewTimer(1 * time.Second)
+				gen.mu.Unlock()
+				go gen.loop(N)
+			}
 			err = app.Do(ctx, tt.cmd)
 			if err != nil {
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 			if tt.name == "/start" {
-				time.Sleep(100 * time.Millisecond)
+				<-dmp1.drain
+				<-dmp2.drain
 			}
 			if tt.name == "/stop" {
 				switch {
-				case *proc1.v-1 != *proc2.v:
+				case *proc1.n != *proc2.n:
 					err = xerrors.Errorf("stage-1 error")
-					t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.v, proc2.name, *proc2.v)
+					t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.n, proc2.name, *proc2.n)
 				case *proc2.v*2 != *proc3.v:
 					err = xerrors.Errorf("stage-2 error")
 					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
@@ -215,31 +240,35 @@ func TestAdder(t *testing.T) {
 		proc4 = pstate{name: "dumper"}
 	)
 
+	var (
+		gen1 *testI64Gen
+		gen2 *testI64Gen
+		dump *testI64Dumper
+	)
+
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			proc1.v = &dev.N
+			gen1 = new(testI64Gen)
+			proc1.v = &gen1.N
 			return job.Proc{
-				Dev:   dev,
+				Dev:   gen1,
 				Name:  proc1.name,
 				Level: proclvl,
 				Outputs: job.OutputHandlers{
-					"/i64-1": dev.Output,
+					"/i64-1": gen1.Output,
 				},
-				Handlers: job.RunHandlers{dev.Loop},
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			proc2.v = &dev.N
+			gen2 = new(testI64Gen)
+			proc2.v = &gen2.N
 			return job.Proc{
-				Dev:   dev,
+				Dev:   gen2,
 				Name:  proc2.name,
 				Level: proclvl,
 				Outputs: job.OutputHandlers{
-					"/i64-2": dev.Output,
+					"/i64-2": gen2.Output,
 				},
-				Handlers: job.RunHandlers{dev.Loop},
 			}
 		}(),
 		func() job.Proc {
@@ -260,14 +289,17 @@ func TestAdder(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc4.v = &dev.V
+			dump = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc4.n = &dump.N
+			proc4.v = &dump.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dump,
 				Name:  proc4.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/sum": dev.Input,
+					"/sum": dump.Input,
 				},
 			}
 		}(),
@@ -293,14 +325,21 @@ func TestAdder(t *testing.T) {
 		{"/quit", tdaq.CmdQuit},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		const N = 15
 		func() {
 			defer cancel()
+			if tt.name == "/start" {
+				dump.want = N
+				dump.timer = time.NewTimer(1 * time.Second)
+				go gen1.loop(N)
+				go gen2.loop(N)
+			}
 			err = app.Do(ctx, tt.cmd)
 			if err != nil {
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 			if tt.name == "/start" {
-				time.Sleep(100 * time.Millisecond)
+				<-dump.drain
 			}
 			if tt.name == "/stop" {
 				switch {
@@ -362,18 +401,24 @@ func TestScaler(t *testing.T) {
 		proc5 = pstate{name: "proc-5"}
 	)
 
+	var (
+		gen  *testI64Gen
+		dmp1 *testI64Dumper
+		dmp2 *testI64Dumper
+	)
+
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			proc1.n = &dev.N
+			gen = new(testI64Gen)
+			proc1.n = &gen.N
+			proc1.v = &gen.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   gen,
 				Name:  proc1.name,
 				Level: proclvl,
 				Outputs: job.OutputHandlers{
-					"/i64-1": dev.Output,
+					"/i64-1": gen.Output,
 				},
-				Handlers: job.RunHandlers{dev.Loop},
 			}
 		}(),
 		func() job.Proc {
@@ -408,14 +453,17 @@ func TestScaler(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc3.n = &dev.N
+			dmp1 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc3.n = &dmp1.N
+			proc3.v = &dmp1.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp1,
 				Name:  proc3.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-2": dev.Input,
+					"/i64-2": dmp1.Input,
 				},
 			}
 		}(),
@@ -434,14 +482,17 @@ func TestScaler(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc5.n = &dev.N
+			dmp2 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc5.n = &dmp2.N
+			proc5.v = &dmp2.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp2,
 				Name:  proc5.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-3": dev.Input,
+					"/i64-3": dmp2.Input,
 				},
 			}
 		}(),
@@ -467,21 +518,32 @@ func TestScaler(t *testing.T) {
 		{"/quit", tdaq.CmdQuit},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		const N = 16
 		func() {
 			defer cancel()
+			if tt.name == "/start" {
+				gen.mu.Lock()
+				gen.N = 0
+				gen.V = 0
+				dmp1.want = N / 2
+				dmp1.timer = time.NewTimer(1 * time.Second)
+				dmp2.timer = time.NewTimer(1 * time.Second)
+				gen.mu.Unlock()
+				go gen.loop(N)
+			}
 			err = app.Do(ctx, tt.cmd)
 			if err != nil {
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 			if tt.name == "/start" {
-				time.Sleep(100 * time.Millisecond)
+				<-dmp1.drain
 			}
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.n != *proc2.n:
 					err = xerrors.Errorf("stage-1 error")
 					t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.n, proc2.name, *proc2.n)
-				case int64(float64(*proc2.n)*0.5) != int64(float64(*proc3.n)):
+				case *proc2.n/2 != *proc3.n:
 					err = xerrors.Errorf("stage-2 error")
 					t.Fatalf("stage-2: error: %q:%v, %q:%v", proc2.name, *proc2.n, proc3.name, *proc3.n)
 				case *proc5.n != 0:
@@ -541,18 +603,26 @@ func TestSplitter(t *testing.T) {
 		proc7 = pstate{name: "proc-7"}
 	)
 
+	var (
+		gen  *testI64Gen
+		dmp1 *testI64Dumper
+		dmp2 *testI64Dumper
+		dmp3 *testI64Dumper
+		dmp4 *testI64Dumper
+	)
+
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			proc1.n = &dev.N
+			gen = new(testI64Gen)
+			proc1.n = &gen.N
+			proc1.v = &gen.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   gen,
 				Name:  proc1.name,
 				Level: proclvl,
 				Outputs: job.OutputHandlers{
-					"/i64": dev.Output,
+					"/i64": gen.Output,
 				},
-				Handlers: job.RunHandlers{dev.Loop},
 			}
 		}(),
 		func() job.Proc {
@@ -598,26 +668,32 @@ func TestSplitter(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc3.n = &dev.N
+			dmp1 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc3.n = &dmp1.N
+			proc3.v = &dmp1.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp1,
 				Name:  proc3.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-1-left": dev.Input,
+					"/i64-1-left": dmp1.Input,
 				},
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc4.n = &dev.N
+			dmp2 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc4.n = &dmp2.N
+			proc4.v = &dmp2.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp2,
 				Name:  proc4.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-1-right": dev.Input,
+					"/i64-1-right": dmp2.Input,
 				},
 			}
 		}(),
@@ -637,26 +713,32 @@ func TestSplitter(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc6.n = &dev.N
+			dmp3 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc6.n = &dmp3.N
+			proc6.v = &dmp3.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp3,
 				Name:  proc6.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-2-left": dev.Input,
+					"/i64-2-left": dmp3.Input,
 				},
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64Dumper)
-			proc7.n = &dev.N
+			dmp4 = &testI64Dumper{
+				drain: make(chan int),
+			}
+			proc7.n = &dmp4.N
+			proc7.v = &dmp4.V
 			return job.Proc{
-				Dev:   dev,
+				Dev:   dmp4,
 				Name:  proc7.name,
 				Level: proclvl,
 				Inputs: job.InputHandlers{
-					"/i64-2-right": dev.Input,
+					"/i64-2-right": dmp4.Input,
 				},
 			}
 		}(),
@@ -679,19 +761,35 @@ func TestSplitter(t *testing.T) {
 		{"/start", tdaq.CmdStart},
 		{"/stop", tdaq.CmdStop},
 		{"/status", tdaq.CmdStatus},
-		{"/start", tdaq.CmdStart},
-		{"/stop", tdaq.CmdStop},
 		{"/quit", tdaq.CmdQuit},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		const N = 16
 		func() {
 			defer cancel()
+			if tt.name == "/start" {
+				gen.mu.Lock()
+				gen.N = 0
+				gen.V = 0
+				dmp1.want = N / 2
+				dmp2.want = N / 2
+				dmp3.want = N
+				dmp4.want = 0
+				dmp1.timer = time.NewTimer(1 * time.Second)
+				dmp2.timer = time.NewTimer(1 * time.Second)
+				dmp3.timer = time.NewTimer(1 * time.Second)
+				dmp4.timer = time.NewTimer(1 * time.Second)
+				gen.mu.Unlock()
+				go gen.loop(N)
+			}
 			err = app.Do(ctx, tt.cmd)
 			if err != nil {
 				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
 			}
 			if tt.name == "/start" {
-				time.Sleep(100 * time.Millisecond)
+				<-dmp1.drain
+				<-dmp2.drain
+				<-dmp3.drain
 			}
 			if tt.name == "/stop" {
 				switch {
@@ -976,4 +1074,147 @@ func BenchmarkTOF(b *testing.B) {
 	if err != nil {
 		b.Fatalf("error shutting down tdaq app: %+v", err)
 	}
+}
+
+type testI64Gen struct {
+	N int64 // count
+	V int64 // last value
+
+	mu sync.RWMutex
+	ch chan int64
+}
+
+func (dev *testI64Gen) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /config command...")
+	return nil
+}
+
+func (dev *testI64Gen) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /init command...")
+	dev.mu.Lock()
+	dev.N = 0
+	dev.V = 0
+	dev.ch = make(chan int64)
+	dev.mu.Unlock()
+	return nil
+}
+
+func (dev *testI64Gen) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /init command...")
+	dev.mu.Lock()
+	dev.N = 0
+	dev.V = 0
+	dev.ch = make(chan int64)
+	dev.mu.Unlock()
+	return nil
+}
+
+func (dev *testI64Gen) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /start command...")
+	return nil
+}
+
+func (dev *testI64Gen) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	dev.mu.RLock()
+	n := dev.N
+	v := dev.V
+	dev.mu.RUnlock()
+	ctx.Msg.Infof("received /stop command... -> n=%d, v=%v", n, v)
+	return nil
+}
+
+func (dev *testI64Gen) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /quit command...")
+	return nil
+}
+
+func (dev *testI64Gen) Output(ctx tdaq.Context, dst *tdaq.Frame) error {
+	select {
+	case <-ctx.Ctx.Done():
+		dst.Body = nil
+		return nil
+	case data := <-dev.ch:
+		dst.Body = make([]byte, 8)
+		binary.LittleEndian.PutUint64(dst.Body, uint64(data))
+	}
+	return nil
+}
+
+func (dev *testI64Gen) loop(n int) {
+	for i := 0; i < n; i++ {
+		dev.mu.Lock()
+		dev.ch <- int64(i)
+		dev.N++
+		dev.V = int64(i)
+		dev.mu.Unlock()
+	}
+}
+
+type testI64Dumper struct {
+	N int64 // counter of values seen since /init
+	V int64 // last value seen
+
+	want  int64
+	drain chan int
+	timer *time.Timer
+}
+
+func (dev *testI64Dumper) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /config command...")
+	return nil
+}
+
+func (dev *testI64Dumper) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /init command...")
+	dev.N = +0
+	dev.V = -1
+	return nil
+}
+
+func (dev *testI64Dumper) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /reset command...")
+	dev.N = +0
+	return nil
+}
+
+func (dev *testI64Dumper) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /start command...")
+	return nil
+}
+
+func (dev *testI64Dumper) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	n := dev.N
+	v := dev.V
+	ctx.Msg.Infof("received /stop command... v=%d -> n=%d", v, n)
+	return nil
+}
+
+func (dev *testI64Dumper) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
+	ctx.Msg.Debugf("received /quit command...")
+	dev.timer.Stop()
+	return nil
+}
+
+func (dev *testI64Dumper) Input(ctx tdaq.Context, src tdaq.Frame) error {
+	dev.V = int64(binary.LittleEndian.Uint64(src.Body))
+	dev.N++
+	select {
+	case <-dev.timer.C:
+		dev.drain <- 0
+		return nil
+	default:
+	}
+	if dev.N == dev.want {
+		ctx.Msg.Debugf("want=%v, n=%v", dev.N, dev.want)
+		select {
+		case <-dev.timer.C:
+			ctx.Msg.Debugf("want=%v, n=%v (ctx=canceled)", dev.N, dev.want)
+			dev.drain <- 0
+			return nil
+		case dev.drain <- 1:
+			ctx.Msg.Debugf("want=%v, n=%v (drained)", dev.N, dev.want)
+		}
+	}
+	ctx.Msg.Debugf("received: v=%d -> n=%d (want=%d)", dev.V, dev.N, dev.want)
+	return nil
 }
