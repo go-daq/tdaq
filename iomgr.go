@@ -40,6 +40,15 @@ func newIMgr(srv *Server) *imgr {
 	}
 }
 
+func (mgr *imgr) close() {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	for _, conn := range mgr.ps {
+		_ = conn.Close()
+	}
+}
+
 func (mgr *imgr) Handle(name string, h InputHandler) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -209,6 +218,15 @@ func newOMgr(srv *Server) *omgr {
 		srv: srv,
 		ps:  make(map[string]*oport),
 		ep:  make(map[string]OutputHandler),
+	}
+}
+
+func (mgr *omgr) close() {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	for _, op := range mgr.ps {
+		op.close()
 	}
 }
 
@@ -386,6 +404,8 @@ func newCmdMgr(cmds ...string) *cmdmgr {
 	}
 }
 
+func (mgr *cmdmgr) close() {}
+
 func (mgr *cmdmgr) Handle(name string, handler CmdHandler) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -441,6 +461,16 @@ type oport struct {
 	l     net.Listener
 	mu    sync.RWMutex
 	conns []net.Conn
+}
+
+func (o *oport) close() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	_ = o.l.Close()
+	for i := range o.conns {
+		_ = o.conns[i].Close()
+	}
 }
 
 func (o *oport) accept() {

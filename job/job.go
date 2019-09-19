@@ -68,8 +68,17 @@ type App struct {
 // No process is started nor scheduled yet and the tdaq application
 // configuration can be further customized or modified.
 func New(stdout io.Writer) *App {
+	var w *iomux.Writer
+
 	if stdout == nil {
 		stdout = os.Stdout
+	}
+
+	switch stdout := stdout.(type) {
+	case *iomux.Writer:
+		w = stdout
+	default:
+		w = iomux.NewWriter(stdout)
 	}
 
 	app := &App{
@@ -81,7 +90,7 @@ func New(stdout io.Writer) *App {
 			HBeatFreq: 50 * time.Millisecond,
 		},
 		Timeout: 5 * time.Second,
-		stdout:  iomux.NewWriter(stdout),
+		stdout:  w,
 		names:   make(map[string]struct{}),
 		ctx:     context.Background(),
 		errc:    make(chan error),

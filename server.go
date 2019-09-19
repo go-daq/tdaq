@@ -104,6 +104,10 @@ func (srv *Server) Run(ctx context.Context) error {
 
 	srv.rctl = rctl
 
+	defer srv.cmgr.close()
+	defer srv.imgr.close()
+	defer srv.omgr.close()
+
 	err = srv.omgr.init(srv)
 	if err != nil {
 		return xerrors.Errorf("could not setup i/o data ports: %w", err)

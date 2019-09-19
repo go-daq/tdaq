@@ -104,6 +104,8 @@ func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rc *RunControl) webStatus(ws *websocket.Conn) {
+	defer ws.Close()
+
 	rc.mu.RLock()
 	freq := rc.cfg.HBeatFreq
 	rc.mu.RUnlock()
@@ -154,6 +156,8 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 }
 
 func (rc *RunControl) webMsg(ws *websocket.Conn) {
+	defer ws.Close()
+
 	for {
 		select {
 		case <-rc.quit:
