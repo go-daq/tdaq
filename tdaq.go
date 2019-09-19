@@ -5,8 +5,6 @@
 // Package tdaq is a minimal toolkit to implement a tiny data acquisition system.
 package tdaq // import "github.com/go-daq/tdaq"
 
-//go:generate stringer -type FrameType -output z_frametype_string.go .
-
 import (
 	"bytes"
 	"context"
@@ -31,6 +29,7 @@ type Unmarshaler interface {
 	UnmarshalTDAQ(p []byte) error
 }
 
+// Frame is the datum being exchanged between tdaq processes.
 type Frame struct {
 	Len  int32     // length of frame (Type+Path+Body)
 	Type FrameType // type of frame (cmd,data,err,ok)
@@ -38,6 +37,7 @@ type Frame struct {
 	Body []byte    // frame payload
 }
 
+// FrameType describes the type of a Frame.
 type FrameType byte
 
 const (
@@ -50,6 +50,27 @@ const (
 	FrameErr
 )
 
+func (ft FrameType) String() string {
+	switch ft {
+	case FrameUnknown:
+		return "unknown-frame"
+	case FrameCmd:
+		return "cmd-frame"
+	case FrameData:
+		return "data-frame"
+	case FrameMsg:
+		return "msg-frame"
+	case FrameOK:
+		return "ok-frame"
+	case FrameEOF:
+		return "eof-frame"
+	case FrameErr:
+		return "err-frame"
+	default:
+		panic(xerrors.Errorf("invalid frame-type %d", byte(ft)))
+	}
+}
+
 var (
 	eofFrame []byte
 )
@@ -61,10 +82,6 @@ func init() {
 		panic(xerrors.Errorf("tdaq: could not pre-serialize eof-frame: %w", err))
 	}
 	eofFrame = buf.Bytes()
-}
-
-func SendData(ctx context.Context, w io.Writer, path, data []byte) error {
-	return sendFrame(ctx, w, FrameData, path, data)
 }
 
 func SendMsg(ctx context.Context, w io.Writer, msg MsgFrame) error {

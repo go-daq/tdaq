@@ -116,3 +116,39 @@ func TestFrame(t *testing.T) {
 		})
 	}
 }
+
+func TestFrameType(t *testing.T) {
+	for _, tt := range []struct {
+		frame  FrameType
+		want   string
+		panics bool
+	}{
+		{frame: FrameUnknown, want: "unknown-frame"},
+		{frame: FrameCmd, want: "cmd-frame"},
+		{frame: FrameData, want: "data-frame"},
+		{frame: FrameMsg, want: "msg-frame"},
+		{frame: FrameOK, want: "ok-frame"},
+		{frame: FrameEOF, want: "eof-frame"},
+		{frame: FrameErr, want: "err-frame"},
+		{frame: FrameType(255), panics: true},
+	} {
+		t.Run("", func(t *testing.T) {
+			if tt.panics {
+				defer func() {
+					err := recover()
+					if err == nil {
+						t.Fatalf("expected a panic")
+					}
+					if got, want := err.(error).Error(), "invalid frame-type 255"; got != want {
+						t.Fatalf("invalid panic string.\ngot = %q\nwant= %q\n", got, want)
+					}
+				}()
+			}
+
+			got := tt.frame.String()
+			if got != tt.want {
+				t.Fatalf("invalid stringer value.\ngot = %q\nwant= %q\n", got, tt.want)
+			}
+		})
+	}
+}

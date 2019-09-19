@@ -140,3 +140,43 @@ func TestCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestCmdType(t *testing.T) {
+	for _, tt := range []struct {
+		cmd    tdaq.CmdType
+		want   string
+		panics bool
+	}{
+		{cmd: tdaq.CmdUnknown, want: "/unknown"},
+		{cmd: tdaq.CmdJoin, want: "/join"},
+		{cmd: tdaq.CmdHBeat, want: "/hbeat"},
+		{cmd: tdaq.CmdConfig, want: "/config"},
+		{cmd: tdaq.CmdInit, want: "/init"},
+		{cmd: tdaq.CmdReset, want: "/reset"},
+		{cmd: tdaq.CmdStart, want: "/start"},
+		{cmd: tdaq.CmdStop, want: "/stop"},
+		{cmd: tdaq.CmdQuit, want: "/quit"},
+		{cmd: tdaq.CmdStatus, want: "/status"},
+		{cmd: tdaq.CmdLog, want: "/log"},
+		{cmd: tdaq.CmdType(255), panics: true},
+	} {
+		t.Run("", func(t *testing.T) {
+			if tt.panics {
+				defer func() {
+					err := recover()
+					if err == nil {
+						t.Fatalf("expected a panic")
+					}
+					if got, want := err.(error).Error(), "invalid cmd-type 255"; got != want {
+						t.Fatalf("invalid panic string.\ngot = %q\nwant= %q\n", got, want)
+					}
+				}()
+			}
+
+			got := tt.cmd.String()
+			if got != tt.want {
+				t.Fatalf("invalid stringer value.\ngot = %q\nwant= %q\n", got, tt.want)
+			}
+		})
+	}
+}

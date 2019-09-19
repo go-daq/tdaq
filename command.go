@@ -15,6 +15,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// CmdType describes the type of a command frame.
 type CmdType byte
 
 const (
@@ -31,18 +32,47 @@ const (
 	CmdLog
 )
 
+func (cmd CmdType) String() string {
+	switch cmd {
+	case CmdUnknown:
+		return "/unknown"
+	case CmdJoin:
+		return "/join"
+	case CmdHBeat:
+		return "/hbeat"
+	case CmdConfig:
+		return "/config"
+	case CmdInit:
+		return "/init"
+	case CmdReset:
+		return "/reset"
+	case CmdStart:
+		return "/start"
+	case CmdStop:
+		return "/stop"
+	case CmdQuit:
+		return "/quit"
+	case CmdStatus:
+		return "/status"
+	case CmdLog:
+		return "/log"
+	default:
+		panic(xerrors.Errorf("invalid cmd-type %d", byte(cmd)))
+	}
+}
+
 var cmdNames = [...][]byte{
-	CmdUnknown: []byte("/unknown"),
-	CmdJoin:    []byte("/join"),
-	CmdHBeat:   []byte("/hbeat"),
-	CmdConfig:  []byte("/config"),
-	CmdInit:    []byte("/init"),
-	CmdReset:   []byte("/reset"),
-	CmdStart:   []byte("/start"),
-	CmdStop:    []byte("/stop"),
-	CmdQuit:    []byte("/quit"),
-	CmdStatus:  []byte("/status"),
-	CmdLog:     []byte("/log"),
+	CmdUnknown: []byte(CmdUnknown.String()),
+	CmdJoin:    []byte(CmdJoin.String()),
+	CmdHBeat:   []byte(CmdHBeat.String()),
+	CmdConfig:  []byte(CmdConfig.String()),
+	CmdInit:    []byte(CmdInit.String()),
+	CmdReset:   []byte(CmdReset.String()),
+	CmdStart:   []byte(CmdStart.String()),
+	CmdStop:    []byte(CmdStop.String()),
+	CmdQuit:    []byte(CmdQuit.String()),
+	CmdStatus:  []byte(CmdStatus.String()),
+	CmdLog:     []byte(CmdLog.String()),
 }
 
 func cmdTypeToPath(cmd CmdType) []byte {
