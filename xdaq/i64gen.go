@@ -14,7 +14,8 @@ import (
 // I64Gen publishes int64 data on an output end-point.
 type I64Gen struct {
 	Start int64         // starting value of the sequence of int64 data.
-	N     int64         // last value generated in the sequence.
+	N     int64         // number of values generated since /init.
+	V     int64         // last value generated in the sequence.
 	Freq  time.Duration // frequency of the int64 data sequence generation.
 
 	ch chan int64
@@ -27,7 +28,8 @@ func (dev *I64Gen) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) 
 
 func (dev *I64Gen) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
-	dev.N = dev.Start
+	dev.V = dev.Start
+	dev.N = 0
 	dev.ch = make(chan int64)
 	if dev.Freq <= 0 {
 		dev.Freq = 10 * time.Millisecond
@@ -37,6 +39,7 @@ func (dev *I64Gen) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) er
 
 func (dev *I64Gen) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	ctx.Msg.Debugf("received /init command...")
+	dev.V = 0
 	dev.N = 0
 	dev.ch = make(chan int64)
 	return nil
@@ -49,7 +52,8 @@ func (dev *I64Gen) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) e
 
 func (dev *I64Gen) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
 	n := dev.N - 1
-	ctx.Msg.Infof("received /stop command... -> n=%d", n)
+	v := dev.V
+	ctx.Msg.Infof("received /stop command... -> n=%d, v=%d", n, v)
 	return nil
 }
 
@@ -77,7 +81,8 @@ func (dev *I64Gen) Loop(ctx tdaq.Context) error {
 			return nil
 		default:
 			select {
-			case dev.ch <- dev.N:
+			case dev.ch <- dev.V:
+				dev.V++
 				dev.N++
 			default:
 			}
