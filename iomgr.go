@@ -150,7 +150,11 @@ func (mgr *imgr) onStart(ctx Context) error {
 	}
 
 	go func() {
-		mgr.done <- mgr.grp.Wait()
+		err := mgr.grp.Wait()
+		if err != nil {
+			ctx.Msg.Errorf("error during run: %+v", err)
+		}
+		mgr.done <- err
 	}()
 
 	return nil
@@ -319,7 +323,11 @@ func (mgr *omgr) onStart(ctx Context) error {
 	}
 
 	go func() {
-		mgr.done <- mgr.grp.Wait()
+		err := mgr.grp.Wait()
+		if err != nil {
+			ctx.Msg.Errorf("error during run: %+v", err)
+		}
+		mgr.done <- err
 	}()
 
 	return nil
