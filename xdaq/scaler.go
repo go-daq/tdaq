@@ -68,7 +68,7 @@ func (dev *Scaler) Input(ctx tdaq.Context, src tdaq.Frame) error {
 		ctx.Msg.Debugf("received: %d/%d (accepted)", dev.acc, dev.tot)
 		dev.ch <- src
 	default:
-		ctx.Msg.Debugf("received: %d/%d (rejeted)", dev.acc, dev.tot)
+		ctx.Msg.Debugf("received: %d/%d (rejected)", dev.acc, dev.tot)
 	}
 	return nil
 }
