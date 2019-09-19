@@ -25,10 +25,10 @@ func (rc *RunControl) Web() websrv {
 func TestMsgFrame(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range []MsgFrame{
-		MsgFrame{Name: "n1", Level: log.LvlDebug, Msg: strings.Repeat("0123456789", 80)},
-		MsgFrame{Name: "n2", Level: log.LvlInfo, Msg: strings.Repeat("0123456789", 80)},
-		MsgFrame{Name: "n3", Level: log.LvlWarning, Msg: strings.Repeat("0123456789", 80)},
-		MsgFrame{Name: "n4", Level: log.LvlError, Msg: strings.Repeat("0123456789", 80)},
+		{Name: "n1", Level: log.LvlDebug, Msg: strings.Repeat("0123456789", 80)},
+		{Name: "n2", Level: log.LvlInfo, Msg: strings.Repeat("0123456789", 80)},
+		{Name: "n3", Level: log.LvlWarning, Msg: strings.Repeat("0123456789", 80)},
+		{Name: "n4", Level: log.LvlError, Msg: strings.Repeat("0123456789", 80)},
 	} {
 		t.Run(tt.Name, func(t *testing.T) {
 			buf := new(bytes.Buffer)

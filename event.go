@@ -4,7 +4,6 @@
 
 package tdaq // import "github.com/go-daq/tdaq"
 
-
 type Event struct {
 	Type    uint32 // event type
 	Version uint32 // event version
