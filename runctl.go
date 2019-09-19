@@ -76,7 +76,7 @@ type RunControl struct {
 	stdout io.Writer
 
 	mu        sync.RWMutex
-	status    fsm.StateKind
+	status    fsm.Status
 	msg       log.MsgStream
 	procs     map[string]*proc
 	dag       *dflow.Graph // DAG of data dependencies b/w processes
@@ -417,13 +417,11 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	}
 
 	rc.procs[join.Name] = &proc{
-		name: join.Name,
-		status: fsm.Status{
-			State: fsm.UnConf,
-		},
-		ieps: join.InEndPoints,
-		oeps: join.OutEndPoints,
-		cmd:  conn,
+		name:   join.Name,
+		status: fsm.UnConf,
+		ieps:   join.InEndPoints,
+		oeps:   join.OutEndPoints,
+		cmd:    conn,
 	}
 	rc.deps = append(rc.deps, join.Name)
 
@@ -754,7 +752,7 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 
 	rc.status = fsm.Conf
 	for _, proc := range rc.procs {
-		proc.status.State = rc.status
+		proc.status = rc.status
 	}
 
 	return nil
@@ -780,7 +778,7 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 
 	rc.status = fsm.Init
 	for _, proc := range rc.procs {
-		proc.status.State = rc.status
+		proc.status = rc.status
 	}
 
 	return nil
@@ -799,7 +797,7 @@ func (rc *RunControl) doReset(ctx context.Context) error {
 
 	rc.status = fsm.UnConf
 	for _, proc := range rc.procs {
-		proc.status.State = rc.status
+		proc.status = rc.status
 	}
 
 	return nil
@@ -818,7 +816,7 @@ func (rc *RunControl) doStart(ctx context.Context) error {
 
 	rc.status = fsm.Running
 	for _, proc := range rc.procs {
-		proc.status.State = rc.status
+		proc.status = rc.status
 	}
 
 	return nil
@@ -837,7 +835,7 @@ func (rc *RunControl) doStop(ctx context.Context) error {
 
 	rc.status = fsm.Stopped
 	for _, proc := range rc.procs {
-		proc.status.State = rc.status
+		proc.status = rc.status
 	}
 
 	return nil
@@ -895,7 +893,7 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 					return xerrors.Errorf("could not receive /status reply for %q: %w", proc.name, err)
 				}
 				rc.mu.Lock()
-				proc.status.State = cmd.Status
+				proc.status = cmd.Status
 				rc.mu.Unlock()
 				rc.msg.Infof("received /status = %v for %q", cmd.Status, proc.name)
 
@@ -953,7 +951,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 					return xerrors.Errorf("could not receive /status heartbeat reply for %q: %w", proc.name, err)
 				}
 				rc.mu.Lock()
-				proc.status.State = cmd.Status
+				proc.status = cmd.Status
 				rc.mu.Unlock()
 
 			default:

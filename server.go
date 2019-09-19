@@ -37,8 +37,8 @@ type Server struct {
 	cmgr *cmdmgr
 
 	state struct {
-		cur  fsm.StateKind
-		next fsm.StateKind
+		cur  fsm.Status
+		next fsm.Status
 	}
 
 	runctx  context.Context
@@ -130,27 +130,27 @@ func (srv *Server) Run(ctx context.Context) error {
 	return err
 }
 
-func (srv *Server) setCurState(state fsm.StateKind) {
+func (srv *Server) setCurState(state fsm.Status) {
 	srv.mu.Lock()
 	srv.state.cur = state
 	srv.state.next = state
 	srv.mu.Unlock()
 }
 
-func (srv *Server) setNextState(state fsm.StateKind) {
+func (srv *Server) setNextState(state fsm.Status) {
 	srv.mu.Lock()
 	srv.state.next = state
 	srv.mu.Unlock()
 }
 
-func (srv *Server) getCurState() fsm.StateKind {
+func (srv *Server) getCurState() fsm.Status {
 	srv.mu.RLock()
 	state := srv.state.cur
 	srv.mu.RUnlock()
 	return state
 }
 
-func (srv *Server) getNextState() fsm.StateKind {
+func (srv *Server) getNextState() fsm.Status {
 	srv.mu.RLock()
 	state := srv.state.next
 	srv.mu.RUnlock()
@@ -316,7 +316,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	var (
 		resp = Frame{Type: FrameOK}
-		next fsm.StateKind
+		next fsm.Status
 		err  error
 	)
 

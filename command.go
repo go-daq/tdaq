@@ -288,7 +288,7 @@ func (cmd *ConfigCmd) UnmarshalTDAQ(p []byte) error {
 
 type StatusCmd struct {
 	Name   string
-	Status fsm.StateKind
+	Status fsm.Status
 }
 
 func newStatusCmd(frame Frame) (StatusCmd, error) {
@@ -323,7 +323,7 @@ func (cmd StatusCmd) MarshalTDAQ() ([]byte, error) {
 func (cmd *StatusCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 	cmd.Name = dec.ReadStr()
-	cmd.Status = fsm.StateKind(dec.ReadI8())
+	cmd.Status = fsm.Status(dec.ReadI8())
 	return dec.err
 }
 

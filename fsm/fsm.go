@@ -4,16 +4,13 @@
 
 package fsm // import "github.com/go-daq/tdaq/fsm"
 
-import (
-	"github.com/go-daq/tdaq/log"
-)
+//go:generate stringer -type Status -output z_status_string.go
 
-//go:generate stringer -type StateKind -output z_statekind_string.go
-
-type StateKind uint8
+// Status describes the current status of a tdaq process.
+type Status uint8
 
 const (
-	UnConf StateKind = iota
+	UnConf Status = iota
 	Conf
 	Init
 	Stopped
@@ -21,16 +18,3 @@ const (
 	Exiting
 	Error
 )
-
-type Status struct {
-	Level log.Level
-	State StateKind
-	Msg   string
-	Tags  map[string]string
-}
-
-func NewStatus() Status {
-	return Status{
-		Tags: make(map[string]string),
-	}
-}

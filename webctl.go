@@ -135,7 +135,7 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 				data.Procs = append(data.Procs, struct {
 					Name   string `json:"name"`
 					Status string `json:"status"`
-				}{proc.name, proc.status.State.String()})
+				}{proc.name, proc.status.String()})
 			}
 			rc.mu.RUnlock()
 			sort.Slice(data.Procs, func(i, j int) bool {
