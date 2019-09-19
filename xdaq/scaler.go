@@ -64,9 +64,14 @@ func (dev *Scaler) Input(ctx tdaq.Context, src tdaq.Frame) error {
 	dev.tot++
 	switch {
 	case dev.Accept():
-		dev.acc++
-		ctx.Msg.Debugf("received: %d/%d (accepted)", dev.acc, dev.tot)
-		dev.ch <- src
+		select {
+		case <-ctx.Ctx.Done():
+			ctx.Msg.Debugf("received: %d/%d (canceled)", dev.acc, dev.tot)
+			return nil
+		case dev.ch <- src:
+			dev.acc++
+			ctx.Msg.Debugf("received: %d/%d (accepted)", dev.acc, dev.tot)
+		}
 	default:
 		ctx.Msg.Debugf("received: %d/%d (rejected)", dev.acc, dev.tot)
 	}

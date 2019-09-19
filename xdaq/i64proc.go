@@ -60,8 +60,12 @@ func (dev *I64Processor) Input(ctx tdaq.Context, src tdaq.Frame) error {
 	dev.V = int64(binary.LittleEndian.Uint64(src.Body))
 	dev.N++
 	ctx.Msg.Debugf("received: %d -> %d", dev.V, dev.N)
-	dev.ch <- dev.V
-	return nil
+	select {
+	case <-ctx.Ctx.Done():
+		return nil
+	case dev.ch <- dev.V:
+		return nil
+	}
 }
 
 func (dev *I64Processor) Output(ctx tdaq.Context, dst *tdaq.Frame) error {

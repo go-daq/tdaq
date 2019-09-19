@@ -68,12 +68,23 @@ func (dev *Splitter) Input(ctx tdaq.Context, src tdaq.Frame) error {
 	dev.tot++
 	switch dev.Fct() {
 	case -1:
-		dev.acc++
-		ctx.Msg.Debugf("received: %d/%d (left)", dev.acc, dev.tot)
-		dev.left <- src
+		select {
+		case <-ctx.Ctx.Done():
+			ctx.Msg.Debugf("received: %d/%d (left-canceled)", dev.acc, dev.tot)
+			return nil
+
+		case dev.left <- src:
+			dev.acc++
+			ctx.Msg.Debugf("received: %d/%d (left)", dev.acc, dev.tot)
+		}
 	default:
-		ctx.Msg.Debugf("received: %d/%d (right)", dev.tot-dev.acc, dev.tot)
-		dev.right <- src
+		select {
+		case <-ctx.Ctx.Done():
+			ctx.Msg.Debugf("received: %d/%d (right-canceled)", dev.tot-dev.acc, dev.tot)
+			return nil
+		case dev.right <- src:
+			ctx.Msg.Debugf("received: %d/%d (right)", dev.tot-dev.acc, dev.tot)
+		}
 	}
 	return nil
 }
