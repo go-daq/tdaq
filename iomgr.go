@@ -477,8 +477,11 @@ func (o *oport) accept() {
 	for {
 		conn, err := o.l.Accept()
 		if err != nil {
-			o.srv.msg.Errorf("could not accept conn for end-point %q: %v", o.name, err)
-			if err.(net.Error).Temporary() {
+			if o.srv.getCurState() != fsm.Exiting {
+				o.srv.msg.Errorf("could not accept conn for end-point %q: %v", o.name, err)
+			}
+			var nerr net.Error
+			if xerrors.Is(err, nerr); nerr != nil && nerr.Temporary() {
 				continue
 			}
 			return
