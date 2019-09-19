@@ -551,12 +551,19 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not unmarshal /log frame: %+v", err)
 			}
-			go rc.processLog(msg)
 
 			select {
 			case rc.msgch <- msg:
 			default:
 				// ok to drop messages.
+			}
+
+			rc.mu.Lock()
+			_, err = rc.flog.Write([]byte(msg.Msg))
+			rc.mu.Unlock()
+
+			if err != nil {
+				rc.msg.Errorf("could not write msg to log file: %q\nerror: %+v", msg.Msg, err)
 			}
 		}
 	}
@@ -605,23 +612,6 @@ func (rc *RunControl) handleHeartbeatConn(ctx context.Context, conn net.Conn) {
 				rc.msg.Warnf("could not process /status heartbeat: %+v", err)
 			}
 		}
-	}
-}
-
-func (rc *RunControl) processLog(msg MsgFrame) {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	select {
-	case <-rc.quit:
-		// we are shutting down...
-		return
-	default:
-	}
-
-	_, err := rc.flog.Write([]byte(msg.Msg))
-
-	if err != nil {
-		rc.msg.Errorf("could not write msg to log file: %q\nerror: %+v", msg.Msg, err)
 	}
 }
 
