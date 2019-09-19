@@ -6,7 +6,9 @@
 package iomux // import "github.com/go-daq/tdaq/internal/iomux"
 
 import (
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -25,6 +27,14 @@ func (w *Writer) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	w.mu.Unlock()
 	return n, err
+}
+
+func (w *Writer) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	o := new(strings.Builder)
+	fmt.Fprintf(o, "%v", w.w)
+	return o.String()
 }
 
 var (
