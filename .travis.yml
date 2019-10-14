@@ -24,9 +24,6 @@ matrix:
    - go: 1.12.x
      env:
        - TAGS=""
-   - go: 1.11.x
-     env:
-       - TAGS=""
    - go: master
      env:
        - TAGS=""
