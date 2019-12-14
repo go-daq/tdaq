@@ -39,227 +39,251 @@ func TestRunControlWebAPI(t *testing.T) {
 		proclvl = log.LvlDebug
 	)
 
-	port, err := tcputil.GetTCPPort()
+	tmpdir, err := ioutil.TempDir("", "go-tdaq-")
 	if err != nil {
-		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+		t.Fatal(err)
 	}
+	defer os.RemoveAll(tmpdir)
 
-	rcAddr := ":" + port
-
-	port, err = tcputil.GetTCPPort()
-	if err != nil {
-		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
-	}
-	webAddr := ":" + port
-
-	stdout := iomux.NewWriter(new(bytes.Buffer))
-
-	fname, err := ioutil.TempFile("", "tdaq-")
-	if err != nil {
-		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
-	}
-	fname.Close()
-	defer func() {
-		if err != nil {
-			raw, err := ioutil.ReadFile(fname.Name())
-			if err == nil {
-				t.Logf("log-file:\n%v\n", string(raw))
-			}
-		}
-		os.Remove(fname.Name())
-	}()
-
-	cfg := config.RunCtl{
-		Name:      "run-ctl",
-		Level:     rclvl,
-		Net:       "tcp",
-		RunCtl:    rcAddr,
-		Web:       webAddr,
-		LogFile:   fname.Name(),
-		HBeatFreq: 50 * time.Millisecond,
-	}
-
-	rc, err := tdaq.NewRunControl(cfg, stdout)
-	if err != nil {
-		t.Fatalf("could not create run-ctl: %+v", err)
-	}
-	tsrv := httptest.NewUnstartedServer(rc.Web().(*http.Server).Handler)
-	tsrv.Config.ReadTimeout = 5 * time.Second
-	tsrv.Config.WriteTimeout = 5 * time.Second
-	tsrv.Start()
-	defer tsrv.Close()
-
-	cli := tsrv.Client()
-	rc.SetWebSrv(newWebSrvTest(tsrv))
-	tcli := &testCli{tsrv}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	grp, ctx := errgroup.WithContext(ctx)
-
-	errc := make(chan error)
-	go func() {
-		errc <- rc.Run(ctx)
-	}()
-
-	grp.Go(func() error {
-		dev := xdaq.I64Gen{}
-
-		cfg := config.Process{
-			Name:   "data-src",
-			Level:  proclvl,
-			Net:    "tcp",
-			RunCtl: rcAddr,
-		}
-		srv := tdaq.New(cfg, stdout)
-		srv.CmdHandle("/config", dev.OnConfig)
-		srv.CmdHandle("/init", dev.OnInit)
-		srv.CmdHandle("/reset", dev.OnReset)
-		srv.CmdHandle("/start", dev.OnStart)
-		srv.CmdHandle("/stop", dev.OnStop)
-		srv.CmdHandle("/quit", dev.OnQuit)
-
-		srv.OutputHandle("/i64", dev.Output)
-
-		srv.RunHandle(dev.Loop)
-
-		err := srv.Run(ctx)
-		return err
-	})
-
-	for _, i := range []int{1, 2, 3} {
-		name := fmt.Sprintf("data-sink-%d", i)
-		grp.Go(func() error {
-			dev := xdaq.I64Dumper{}
-
-			cfg := config.Process{
-				Name:   name,
-				Level:  proclvl,
-				Net:    "tcp",
-				RunCtl: rcAddr,
-			}
-			srv := tdaq.New(cfg, stdout)
-			srv.CmdHandle("/init", dev.OnInit)
-			srv.CmdHandle("/reset", dev.OnReset)
-			srv.CmdHandle("/stop", dev.OnStop)
-
-			srv.InputHandle("/i64", dev.Input)
-
-			err := srv.Run(context.Background())
-			return err
-		})
-	}
-
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-loop:
-	for {
-		select {
-		case <-timeout.C:
-			t.Fatalf("devices did not connect")
-		default:
-			n := rc.NumClients()
-			if n == 4 {
-				break loop
-			}
-		}
-	}
-
-	func() {
-		req, err := http.NewRequest(http.MethodGet, tsrv.URL+"/", nil)
-		if err != nil {
-			t.Fatalf("could not create http request for %q: %+v", "/", err)
-		}
-		resp, err := cli.Do(req)
-		if err != nil {
-			t.Fatalf("could not get /: %+v", err)
-		}
-		defer resp.Body.Close()
-	}()
-
-	ws, err := newTestWS(tsrv)
-	if err != nil {
-		t.Fatalf("could not create test websocket: %+v", err)
-	}
-	defer ws.Close()
-
-	status, err := ws.readStatus()
-	if err != nil {
-		t.Fatalf("could not get /status: %+v", err)
-	}
-	if got, want := status, fsm.UnConf.String(); got != want {
-		t.Fatalf("invalid status: got=%q, want=%q", got, want)
-	}
-
-	func() {
-		// test invalid command
-		cmd := "invalid-command"
-		req, err := tcli.cmd(cmd)
-		if err != nil {
-			t.Fatalf("could not prepare invalid command /%s: %+v", cmd, err)
-		}
-		resp, err := cli.Do(req)
-		if err != nil {
-			t.Fatalf("could not send invalid command /%s: %+v", cmd, err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("invalid status code for invalid command: %v", resp.StatusCode)
-		}
-	}()
-
-	for _, tt := range []struct {
-		name string
-		want string
+	for _, tc := range []struct {
+		network string
+		port    func(string) (string, error)
 	}{
-		{name: "config", want: fsm.Conf.String()},
-		{name: "init", want: fsm.Init.String()},
-		{name: "reset", want: fsm.UnConf.String()},
-		{name: "config", want: fsm.Conf.String()},
-		{name: "init", want: fsm.Init.String()},
-		{name: "start", want: fsm.Running.String()},
-		{name: "stop", want: fsm.Stopped.String()},
-		{name: "status", want: fsm.Stopped.String()},
-		{name: "start", want: fsm.Running.String()},
-		{name: "stop", want: fsm.Stopped.String()},
-		{name: "quit", want: fsm.Exiting.String()},
+		{
+			network: "tcp",
+			port: func(string) (string, error) {
+				p, err := tcputil.GetTCPPort()
+				return ":" + p, err
+			},
+		},
+		//		{
+		//			network: "unix",
+		//			port: func(n string) (string, error) {
+		//				return filepath.Join(tmpdir, n), nil
+		//			},
+		//		},
 	} {
-		req, err := tcli.cmd(tt.name)
-		if err != nil {
-			t.Fatalf("could not prepare cmd /%s: %+v", tt.name, err)
-		}
-		func() {
-			var resp *http.Response
-			resp, err = cli.Do(req)
+		t.Run(tc.network, func(t *testing.T) {
+			rcAddr, err := tc.port("runctl")
 			if err != nil {
-				t.Fatalf("could not send command /%s: %+v", tt.name, err)
+				t.Fatalf("could not find a port for run-ctl: %+v", err)
 			}
-			defer resp.Body.Close()
 
-			if tt.name == "quit" {
-				return
+			webAddr, err := tc.port("web")
+			if err != nil {
+				t.Fatalf("could not find a port for run-ctl web server: %+v", err)
 			}
+
+			stdout := iomux.NewWriter(new(bytes.Buffer))
+
+			fname, err := ioutil.TempFile("", "tdaq-")
+			if err != nil {
+				t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
+			}
+			fname.Close()
+			defer func() {
+				if err != nil {
+					raw, err := ioutil.ReadFile(fname.Name())
+					if err == nil {
+						t.Logf("log-file:\n%v\n", string(raw))
+					}
+				}
+				os.Remove(fname.Name())
+			}()
+
+			cfg := config.RunCtl{
+				Name:      "run-ctl",
+				Level:     rclvl,
+				Net:       tc.network,
+				RunCtl:    rcAddr,
+				Web:       webAddr,
+				LogFile:   fname.Name(),
+				HBeatFreq: 50 * time.Millisecond,
+			}
+
+			rc, err := tdaq.NewRunControl(cfg, stdout)
+			if err != nil {
+				t.Fatalf("could not create run-ctl: %+v", err)
+			}
+			tsrv := httptest.NewUnstartedServer(rc.Web().(*http.Server).Handler)
+			tsrv.Config.ReadTimeout = 5 * time.Second
+			tsrv.Config.WriteTimeout = 5 * time.Second
+			tsrv.Start()
+			defer tsrv.Close()
+
+			cli := tsrv.Client()
+			rc.SetWebSrv(newWebSrvTest(tsrv))
+			tcli := &testCli{tsrv}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			defer cancel()
+
+			grp, ctx := errgroup.WithContext(ctx)
+
+			errc := make(chan error)
+			go func() {
+				errc <- rc.Run(ctx)
+			}()
+
+			grp.Go(func() error {
+				dev := xdaq.I64Gen{}
+
+				cfg := config.Process{
+					Name:   "data-src",
+					Level:  proclvl,
+					Net:    tc.network,
+					RunCtl: rcAddr,
+				}
+				srv := tdaq.New(cfg, stdout)
+				srv.CmdHandle("/config", dev.OnConfig)
+				srv.CmdHandle("/init", dev.OnInit)
+				srv.CmdHandle("/reset", dev.OnReset)
+				srv.CmdHandle("/start", dev.OnStart)
+				srv.CmdHandle("/stop", dev.OnStop)
+				srv.CmdHandle("/quit", dev.OnQuit)
+
+				srv.OutputHandle("/i64", dev.Output)
+
+				srv.RunHandle(dev.Loop)
+
+				err := srv.Run(ctx)
+				return err
+			})
+
+			for _, i := range []int{1, 2, 3} {
+				name := fmt.Sprintf("data-sink-%d", i)
+				grp.Go(func() error {
+					dev := xdaq.I64Dumper{}
+
+					cfg := config.Process{
+						Name:   name,
+						Level:  proclvl,
+						Net:    tc.network,
+						RunCtl: rcAddr,
+					}
+					srv := tdaq.New(cfg, stdout)
+					srv.CmdHandle("/init", dev.OnInit)
+					srv.CmdHandle("/reset", dev.OnReset)
+					srv.CmdHandle("/stop", dev.OnStop)
+
+					srv.InputHandle("/i64", dev.Input)
+
+					err := srv.Run(context.Background())
+					return err
+				})
+			}
+
+			timeout := time.NewTimer(5 * time.Second)
+			defer timeout.Stop()
+		loop:
+			for {
+				select {
+				case <-timeout.C:
+					t.Fatalf("devices did not connect")
+				default:
+					n := rc.NumClients()
+					if n == 4 {
+						break loop
+					}
+				}
+			}
+
+			func() {
+				req, err := http.NewRequest(http.MethodGet, tsrv.URL+"/", nil)
+				if err != nil {
+					t.Fatalf("could not create http request for %q: %+v", "/", err)
+				}
+				resp, err := cli.Do(req)
+				if err != nil {
+					t.Fatalf("could not get /: %+v", err)
+				}
+				defer resp.Body.Close()
+			}()
+
+			ws, err := newTestWS(tsrv)
+			if err != nil {
+				t.Fatalf("could not create test websocket: %+v", err)
+			}
+			defer ws.Close()
 
 			status, err := ws.readStatus()
 			if err != nil {
-				t.Fatalf("could not get /status after /%s: %+v", tt.name, err)
+				t.Fatalf("could not get /status: %+v", err)
+			}
+			if got, want := status, fsm.UnConf.String(); got != want {
+				t.Fatalf("invalid status: got=%q, want=%q", got, want)
 			}
 
-			if got, want := status, tt.want; got != want {
-				t.Fatalf("invalid status after /%s: got=%q, want=%q", tt.name, got, want)
+			func() {
+				// test invalid command
+				cmd := "invalid-command"
+				req, err := tcli.cmd(cmd)
+				if err != nil {
+					t.Fatalf("could not prepare invalid command /%s: %+v", cmd, err)
+				}
+				resp, err := cli.Do(req)
+				if err != nil {
+					t.Fatalf("could not send invalid command /%s: %+v", cmd, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusBadRequest {
+					t.Fatalf("invalid status code for invalid command: %v", resp.StatusCode)
+				}
+			}()
+
+			for _, tt := range []struct {
+				name string
+				want string
+			}{
+				{name: "config", want: fsm.Conf.String()},
+				{name: "init", want: fsm.Init.String()},
+				{name: "reset", want: fsm.UnConf.String()},
+				{name: "config", want: fsm.Conf.String()},
+				{name: "init", want: fsm.Init.String()},
+				{name: "start", want: fsm.Running.String()},
+				{name: "stop", want: fsm.Stopped.String()},
+				{name: "status", want: fsm.Stopped.String()},
+				{name: "start", want: fsm.Running.String()},
+				{name: "stop", want: fsm.Stopped.String()},
+				{name: "quit", want: fsm.Exiting.String()},
+			} {
+				req, err := tcli.cmd(tt.name)
+				if err != nil {
+					t.Fatalf("could not prepare cmd /%s: %+v", tt.name, err)
+				}
+				func() {
+					var resp *http.Response
+					resp, err = cli.Do(req)
+					if err != nil {
+						t.Fatalf("could not send command /%s: %+v", tt.name, err)
+					}
+					defer resp.Body.Close()
+
+					if tt.name == "quit" {
+						return
+					}
+
+					status, err := ws.readStatus()
+					if err != nil {
+						t.Fatalf("could not get /status after /%s: %+v", tt.name, err)
+					}
+
+					if got, want := status, tt.want; got != want {
+						t.Fatalf("invalid status after /%s: got=%q, want=%q", tt.name, got, want)
+					}
+				}()
 			}
-		}()
-	}
 
-	err = grp.Wait()
-	if err != nil {
-		t.Fatalf("could not run device run-group: %+v", err)
-	}
+			err = grp.Wait()
+			if err != nil {
+				t.Fatalf("could not run device run-group: %+v", err)
+			}
 
-	err = <-errc
-	if err != nil && !xerrors.Is(err, context.Canceled) {
-		t.Fatalf("error shutting down run-ctl: %+v", err)
+			err = <-errc
+			if err != nil && !xerrors.Is(err, context.Canceled) {
+				t.Fatalf("error shutting down run-ctl: %+v", err)
+			}
+		})
 	}
 }
 
