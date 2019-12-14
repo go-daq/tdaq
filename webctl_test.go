@@ -72,6 +72,7 @@ func TestRunControlWebAPI(t *testing.T) {
 	cfg := config.RunCtl{
 		Name:      "run-ctl",
 		Level:     rclvl,
+		Net:       "tcp",
 		RunCtl:    rcAddr,
 		Web:       webAddr,
 		LogFile:   fname.Name(),
@@ -108,6 +109,7 @@ func TestRunControlWebAPI(t *testing.T) {
 		cfg := config.Process{
 			Name:   "data-src",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)
@@ -134,6 +136,7 @@ func TestRunControlWebAPI(t *testing.T) {
 			cfg := config.Process{
 				Name:   name,
 				Level:  proclvl,
+				Net:    "tcp",
 				RunCtl: rcAddr,
 			}
 			srv := tdaq.New(cfg, stdout)

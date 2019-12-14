@@ -95,12 +95,12 @@ func (srv *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	rctl, err := net.Dial("tcp", srv.rc)
+	rctl, err := net.Dial(srv.cfg.Net, srv.rc)
 	if err != nil {
 		return xerrors.Errorf("could not dial run-ctl: %w", err)
 	}
 	defer rctl.Close()
-	setupTCPConn(rctl.(*net.TCPConn))
+	setupConn(rctl)
 
 	srv.rctl = rctl
 
@@ -232,11 +232,11 @@ func (srv *Server) setupLogCmd(ctx context.Context) error {
 		return xerrors.Errorf("could not send /log-ack to run-ctl: %w", err)
 	}
 
-	conn, err := net.Dial("tcp", cmd.Addr)
+	conn, err := net.Dial(srv.cfg.Net, cmd.Addr)
 	if err != nil {
 		return xerrors.Errorf("could not dial run-ctl log server: %w", err)
 	}
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 
 	srv.log = conn
 	srv.msg.setLog(srv.log)
@@ -264,11 +264,11 @@ func (srv *Server) setupHBeatCmd(ctx context.Context) error {
 		return xerrors.Errorf("could not send /hbeat-ack to run-ctl: %w", err)
 	}
 
-	conn, err := net.Dial("tcp", cmd.Addr)
+	conn, err := net.Dial(srv.cfg.Net, cmd.Addr)
 	if err != nil {
 		return xerrors.Errorf("could not dial run-ctl hbeat server: %w", err)
 	}
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 
 	srv.hbeat = conn
 

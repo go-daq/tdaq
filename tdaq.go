@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"net"
 
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/xerrors"
@@ -186,6 +187,18 @@ func (ep *EndPoint) UnmarshalTDAQ(b []byte) error {
 	ep.Addr = dec.ReadStr()
 	ep.Type = dec.ReadStr()
 	return dec.err
+}
+
+// setupConn factorizes how connections should be configured.
+func setupConn(conn net.Conn) {
+	switch conn := conn.(type) {
+	case *net.TCPConn:
+		setupTCPConn(conn)
+	case *net.UnixConn:
+		// nothing to do?
+	default:
+		panic(xerrors.Errorf("invalid net.Conn type %T", conn))
+	}
 }
 
 var (

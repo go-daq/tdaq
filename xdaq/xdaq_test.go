@@ -46,7 +46,7 @@ func TestSequence(t *testing.T) {
 	webAddr := ":" + port
 
 	stdout := new(bytes.Buffer)
-	app := job.New(stdout)
+	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())
@@ -196,7 +196,7 @@ func TestAdder(t *testing.T) {
 	webAddr := ":" + port
 
 	stdout := new(bytes.Buffer)
-	app := job.New(stdout)
+	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())
@@ -342,7 +342,7 @@ func TestScaler(t *testing.T) {
 	webAddr := ":" + port
 
 	stdout := new(bytes.Buffer)
-	app := job.New(stdout)
+	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())
@@ -519,7 +519,7 @@ func TestSplitter(t *testing.T) {
 	webAddr := ":" + port
 
 	stdout := new(bytes.Buffer)
-	app := job.New(stdout)
+	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())

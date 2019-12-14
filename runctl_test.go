@@ -47,7 +47,7 @@ func TestRunControlAPI(t *testing.T) {
 	webAddr := ":" + port
 
 	stdout := new(bytes.Buffer)
-	app := job.New(stdout)
+	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
 			t.Logf("stdout:\n%v\n", stdout.String())
@@ -175,6 +175,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 	cfg := config.RunCtl{
 		Name:      "run-ctl",
 		Level:     rclvl,
+		Net:       "tcp",
 		RunCtl:    rcAddr,
 		Web:       webAddr,
 		LogFile:   fname.Name(),
@@ -202,6 +203,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)
@@ -218,6 +220,7 @@ func TestRunControlWithDuplicateProc(t *testing.T) {
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)
@@ -297,6 +300,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 	cfg := config.RunCtl{
 		Name:      "run-ctl",
 		Level:     rclvl,
+		Net:       "tcp",
 		RunCtl:    rcAddr,
 		Web:       webAddr,
 		LogFile:   fname.Name(),
@@ -324,6 +328,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)
@@ -340,6 +345,7 @@ func TestRunControlWithDuplicateOutput(t *testing.T) {
 		cfg := config.Process{
 			Name:   "proc-2",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)
@@ -446,6 +452,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 	cfg := config.RunCtl{
 		Name:      "run-ctl",
 		Level:     rclvl,
+		Net:       "tcp",
 		RunCtl:    rcAddr,
 		Web:       webAddr,
 		LogFile:   fname.Name(),
@@ -473,6 +480,7 @@ func TestRunControlWithMissingInput(t *testing.T) {
 		cfg := config.Process{
 			Name:   "proc-1",
 			Level:  proclvl,
+			Net:    "tcp",
 			RunCtl: rcAddr,
 		}
 		srv := tdaq.New(cfg, stdout)

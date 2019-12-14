@@ -67,7 +67,7 @@ type App struct {
 //
 // No process is started nor scheduled yet and the tdaq application
 // configuration can be further customized or modified.
-func New(stdout io.Writer) *App {
+func New(network string, stdout io.Writer) *App {
 	var w *iomux.Writer
 
 	if stdout == nil {
@@ -85,6 +85,7 @@ func New(stdout io.Writer) *App {
 		Cfg: config.RunCtl{
 			Name:      "run-ctl",
 			Level:     log.LvlInfo,
+			Net:       network,
 			RunCtl:    ":44000",
 			Web:       ":8080",
 			HBeatFreq: 50 * time.Millisecond,
@@ -147,6 +148,7 @@ func (app *App) Start() error {
 		cfg := config.Process{
 			Name:   p.Name,
 			Level:  p.Level,
+			Net:    app.Cfg.Net,
 			RunCtl: app.Cfg.RunCtl,
 		}
 

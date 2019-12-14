@@ -96,11 +96,11 @@ func (mgr *imgr) onConfig(ctx Context, src Frame) error {
 }
 
 func (mgr *imgr) dial(ep EndPoint) error {
-	conn, err := net.Dial("tcp", ep.Addr)
+	conn, err := net.Dial(mgr.srv.cfg.Net, ep.Addr)
 	if err != nil {
 		return xerrors.Errorf("could not dial %q end-point (ep=%q): %w", ep.Addr, ep.Name, err)
 	}
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 	mgr.ps[ep.Name] = conn
 
 	return nil
@@ -251,7 +251,7 @@ func (mgr *omgr) init(srv *Server) error {
 	defer mgr.mu.Unlock()
 
 	for ep := range mgr.ep {
-		l, err := net.Listen("tcp", ":0")
+		l, err := net.Listen(srv.cfg.Net, ":0")
 		if err != nil {
 			return xerrors.Errorf("could not setup output port %q: %w", ep, err)
 		}
@@ -494,7 +494,7 @@ func (o *oport) accept() {
 			}
 			return
 		}
-		setupTCPConn(conn.(*net.TCPConn))
+		setupConn(conn)
 
 		o.mu.Lock()
 		o.conns = append(o.conns, conn)

@@ -125,9 +125,9 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 
 	rc.msg.Infof("listening on %q...", cfg.RunCtl)
-	srv, err := net.Listen("tcp", cfg.RunCtl)
+	srv, err := net.Listen(cfg.Net, cfg.RunCtl)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create TCP cmd server: %w", err)
+		return nil, xerrors.Errorf("could not create %s cmd server: %w", cfg.Net, err)
 	}
 	rc.srv = srv
 
@@ -140,15 +140,15 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 		port = "[" + ip.String() + "]:0"
 	}
 
-	srv, err = net.Listen("tcp", port)
+	srv, err = net.Listen(cfg.Net, port)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create TCP log server: %w", err)
+		return nil, xerrors.Errorf("could not create %s log server: %w", cfg.Net, err)
 	}
 	rc.log = srv
 
-	hbeat, err := net.Listen("tcp", port)
+	hbeat, err := net.Listen(cfg.Net, port)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create TCP hbeat server: %w", err)
+		return nil, xerrors.Errorf("could not create %s hbeat server: %w", cfg.Net, err)
 	}
 	rc.hbeat = hbeat
 
@@ -362,7 +362,7 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 
 	req, err := RecvFrame(ctx, conn)
 	if err != nil {
@@ -519,7 +519,7 @@ func (rc *RunControl) setupHBeatCmd(ctx context.Context, name string, conn net.C
 }
 
 func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 	defer conn.Close()
 
 	for {
@@ -570,7 +570,7 @@ func (rc *RunControl) handleLogConn(ctx context.Context, conn net.Conn) {
 }
 
 func (rc *RunControl) handleHeartbeatConn(ctx context.Context, conn net.Conn) {
-	setupTCPConn(conn.(*net.TCPConn))
+	setupConn(conn)
 	defer conn.Close()
 
 	req, err := RecvFrame(ctx, conn)

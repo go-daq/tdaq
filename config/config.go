@@ -15,6 +15,7 @@ import (
 type Process struct {
 	Name   string    // name of the TDAQ process
 	Level  log.Level // verbosity level of the TDAQ process
+	Net    string    // network used for the TDAQ network ("tcp", "unix")
 	RunCtl string    // address of the run-ctl of the flock of TDAQ processes
 
 	Args []string // additional flag arguments
@@ -24,7 +25,8 @@ type Process struct {
 type RunCtl struct {
 	Name   string    // name of the run-ctl process
 	Level  log.Level // verbosity level of the run-ctl process
-	RunCtl string    // address of the TCP run-ctl cmd server
+	Net    string    // network used for the TDAQ network ("tcp", "unix")
+	RunCtl string    // address of the run-ctl cmd server
 	Web    string    // address of the HTTP run-ctl web server
 
 	Interactive bool // enable interactive shell commands for the run-ctl process
