@@ -132,8 +132,8 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	rc.srv = srv
 
 	var (
-		portLog = ""
-		portHB  = ""
+		portLog string
+		portHB  string
 	)
 	switch addr := rc.srv.Addr().(type) {
 	case *net.TCPAddr:
