@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,104 +34,133 @@ func TestRunControlAPI(t *testing.T) {
 		proclvl = log.LvlInfo
 	)
 
-	port, err := tcputil.GetTCPPort()
+	tmpdir, err := ioutil.TempDir("", "go-tdaq-")
 	if err != nil {
-		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+		t.Fatal(err)
 	}
+	defer os.RemoveAll(tmpdir)
 
-	rcAddr := ":" + port
-
-	port, err = tcputil.GetTCPPort()
-	if err != nil {
-		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
-	}
-	webAddr := ":" + port
-
-	stdout := new(bytes.Buffer)
-	app := job.New("tcp", stdout)
-	defer func() {
-		if err != nil {
-			t.Logf("stdout:\n%v\n", stdout.String())
-		}
-	}()
-
-	app.Cfg.RunCtl = rcAddr
-	app.Cfg.Web = webAddr
-	app.Cfg.Level = rclvl
-
-	app.Add(
-		func() job.Proc {
-			dev := new(xdaq.I64Gen)
-			return job.Proc{
-				Dev:   dev,
-				Level: proclvl,
-				Name:  "data-src",
-				Cmds: job.CmdHandlers{
-					"/config": dev.OnConfig,
-					"/init":   dev.OnInit,
-					"/reset":  dev.OnReset,
-					"/start":  dev.OnStart,
-					"/stop":   dev.OnStop,
-					"/quit":   dev.OnQuit,
-				},
-				Outputs: job.OutputHandlers{
-					"/i64": dev.Output,
-				},
-				Handlers: job.RunHandlers{dev.Loop},
-			}
-		}(),
-	)
-
-	for _, i := range []int{1, 2, 3} {
-		name := fmt.Sprintf("data-sink-%d", i)
-		app.Add(
-			func() job.Proc {
-				dev := new(xdaq.I64Dumper)
-				return job.Proc{
-					Dev:  dev,
-					Name: name,
-					Inputs: job.InputHandlers{
-						"/i64": dev.Input,
-					},
-				}
-			}(),
-		)
-	}
-
-	err = app.Start()
-	if err != nil {
-		t.Fatalf("could not start job: %+v", err)
-	}
-
-	for _, tt := range []struct {
-		name string
-		cmd  tdaq.CmdType
+	for _, tc := range []struct {
+		network string
+		port    func(string) (string, error)
 	}{
-		{"config", tdaq.CmdConfig},
-		{"init", tdaq.CmdInit},
-		{"reset", tdaq.CmdReset},
-		{"config", tdaq.CmdConfig},
-		{"init", tdaq.CmdInit},
-		{"start", tdaq.CmdStart},
-		{"stop", tdaq.CmdStop},
-		{"status", tdaq.CmdStatus},
-		{"start", tdaq.CmdStart},
-		{"stop", tdaq.CmdStop},
-		{"quit", tdaq.CmdQuit},
+		{
+			network: "tcp",
+			port: func(string) (string, error) {
+				p, err := tcputil.GetTCPPort()
+				return ":" + p, err
+			},
+		},
+		{
+			network: "unix",
+			port: func(n string) (string, error) {
+				//f, err := ioutil.TempFile(tmpdir, "sck-")
+				//return f.Name(), err
+				return filepath.Join(tmpdir, n), nil
+			},
+		},
 	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		func() {
-			defer cancel()
-			err = app.Do(ctx, tt.cmd)
+		t.Run(tc.network, func(t *testing.T) {
+			port, err := tc.port("runctl")
 			if err != nil {
-				t.Fatalf("could not send command %v: %+v", tt.cmd, err)
+				t.Fatalf("could not find a port for run-ctl: %+v", err)
 			}
-		}()
-	}
 
-	err = app.Wait()
-	if err != nil {
-		t.Fatalf("could not run app: %+v", err)
+			rcAddr := port
+
+			port, err = tc.port("webaddr")
+			if err != nil {
+				t.Fatalf("could not find a port for run-ctl web server: %+v", err)
+			}
+			webAddr := port
+
+			stdout := new(bytes.Buffer)
+			app := job.New(tc.network, stdout)
+			defer func() {
+				if err != nil {
+					t.Logf("stdout:\n%v\n", stdout.String())
+				}
+			}()
+
+			app.Cfg.RunCtl = rcAddr
+			app.Cfg.Web = webAddr
+			app.Cfg.Level = rclvl
+
+			app.Add(
+				func() job.Proc {
+					dev := new(xdaq.I64Gen)
+					return job.Proc{
+						Dev:   dev,
+						Level: proclvl,
+						Name:  "data-src",
+						Cmds: job.CmdHandlers{
+							"/config": dev.OnConfig,
+							"/init":   dev.OnInit,
+							"/reset":  dev.OnReset,
+							"/start":  dev.OnStart,
+							"/stop":   dev.OnStop,
+							"/quit":   dev.OnQuit,
+						},
+						Outputs: job.OutputHandlers{
+							"/i64": dev.Output,
+						},
+						Handlers: job.RunHandlers{dev.Loop},
+					}
+				}(),
+			)
+
+			for _, i := range []int{1, 2, 3} {
+				name := fmt.Sprintf("data-sink-%d", i)
+				app.Add(
+					func() job.Proc {
+						dev := new(xdaq.I64Dumper)
+						return job.Proc{
+							Dev:  dev,
+							Name: name,
+							Inputs: job.InputHandlers{
+								"/i64": dev.Input,
+							},
+						}
+					}(),
+				)
+			}
+
+			err = app.Start()
+			if err != nil {
+				t.Fatalf("could not start job: %+v", err)
+			}
+
+			for _, tt := range []struct {
+				name string
+				cmd  tdaq.CmdType
+			}{
+				{"config", tdaq.CmdConfig},
+				{"init", tdaq.CmdInit},
+				{"reset", tdaq.CmdReset},
+				{"config", tdaq.CmdConfig},
+				{"init", tdaq.CmdInit},
+				{"start", tdaq.CmdStart},
+				{"stop", tdaq.CmdStop},
+				{"status", tdaq.CmdStatus},
+				{"start", tdaq.CmdStart},
+				{"stop", tdaq.CmdStop},
+				{"quit", tdaq.CmdQuit},
+			} {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				func() {
+					defer cancel()
+					err = app.Do(ctx, tt.cmd)
+					if err != nil {
+						t.Fatalf("could not send command %v: %+v", tt.cmd, err)
+					}
+				}()
+			}
+
+			err = app.Wait()
+			if err != nil {
+				t.Fatalf("could not run app: %+v", err)
+			}
+		})
 	}
 }
 

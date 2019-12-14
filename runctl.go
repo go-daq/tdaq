@@ -131,22 +131,36 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	}
 	rc.srv = srv
 
-	port := ""
-	switch ip := rc.srv.Addr().(*net.TCPAddr).IP; {
-	case ip.To4() != nil:
-		port = ip.String() + ":0"
+	var (
+		portLog = ""
+		portHB  = ""
+	)
+	switch addr := rc.srv.Addr().(type) {
+	case *net.TCPAddr:
+		port := ""
+		switch ip := addr.IP; {
+		case ip.To4() != nil:
+			port = ip.String() + ":0"
+		default:
+			// IPv6
+			port = "[" + ip.String() + "]:0"
+		}
+		portLog = port
+		portHB = port
+	case *net.UnixAddr:
+		portLog = addr.Name + "-log"
+		portHB = addr.Name + "-hbeat"
 	default:
-		// IPv6
-		port = "[" + ip.String() + "]:0"
+		return nil, xerrors.Errorf("invalid net address type %T: %v", addr, addr)
 	}
 
-	srv, err = net.Listen(cfg.Net, port)
+	srv, err = net.Listen(cfg.Net, portLog)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create %s log server: %w", cfg.Net, err)
 	}
 	rc.log = srv
 
-	hbeat, err := net.Listen(cfg.Net, port)
+	hbeat, err := net.Listen(cfg.Net, portHB)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create %s hbeat server: %w", cfg.Net, err)
 	}
