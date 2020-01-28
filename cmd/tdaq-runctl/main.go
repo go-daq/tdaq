@@ -27,7 +27,7 @@ func main() {
 func run(cfg config.RunCtl, stdout io.Writer) {
 	rc, err := tdaq.NewRunControl(cfg, os.Stdout)
 	if err != nil {
-		log.Errorf("could not create run control: %v", err)
+		log.Errorf("could not create run control: %+v", err)
 		os.Exit(1)
 	}
 
@@ -38,7 +38,7 @@ func run(cfg config.RunCtl, stdout io.Writer) {
 
 	err = rc.Run(context.Background())
 	if err != nil {
-		log.Errorf("could not run run-ctl: %v", err)
+		log.Errorf("could not run run-ctl: %+v", err)
 		os.Exit(1)
 	}
 }

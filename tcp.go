@@ -15,11 +15,11 @@ func setupTCPConn(conn *net.TCPConn) {
 
 	err = conn.SetKeepAlive(true)
 	if err != nil {
-		log.Warnf("could not set keep-alive: %v", err)
+		log.Warnf("could not set keep-alive: %+v", err)
 	}
 	err = conn.SetLinger(1)
 	if err != nil {
-		log.Warnf("could not set linger: %v", err)
+		log.Warnf("could not set linger: %+v", err)
 	}
 
 	return

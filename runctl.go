@@ -279,7 +279,7 @@ func (rc *RunControl) serveCtl(ctx context.Context) {
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err != nil {
-				rc.msg.Errorf("context errored during run-ctl serve: %v", err)
+				rc.msg.Errorf("context errored during run-ctl serve: %+v", err)
 			}
 			return
 		default:
@@ -289,7 +289,7 @@ func (rc *RunControl) serveCtl(ctx context.Context) {
 				case <-rc.quit:
 					// ok, we are shutting down.
 				default:
-					rc.msg.Errorf("error accepting connection: %v", err)
+					rc.msg.Errorf("error accepting connection: %+v", err)
 				}
 				continue
 			}
@@ -309,7 +309,7 @@ func (rc *RunControl) serveLog(ctx context.Context) {
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err != nil {
-				rc.msg.Errorf("context errored during run-ctl serve: %v", err)
+				rc.msg.Errorf("context errored during run-ctl serve: %+v", err)
 			}
 			return
 		default:
@@ -319,7 +319,7 @@ func (rc *RunControl) serveLog(ctx context.Context) {
 				case <-rc.quit:
 					// ok, we are shutting down.
 				default:
-					rc.msg.Errorf("error accepting connection: %v", err)
+					rc.msg.Errorf("error accepting connection: %+v", err)
 				}
 				continue
 			}
@@ -339,7 +339,7 @@ func (rc *RunControl) serveHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err != nil {
-				rc.msg.Errorf("context errored during run-ctl heartbeat serve: %v", err)
+				rc.msg.Errorf("context errored during run-ctl heartbeat serve: %+v", err)
 			}
 			return
 		default:
@@ -349,7 +349,7 @@ func (rc *RunControl) serveHeartbeat(ctx context.Context) {
 				case <-rc.quit:
 					// ok, we are shutting down.
 				default:
-					rc.msg.Errorf("error accepting connection: %v", err)
+					rc.msg.Errorf("error accepting connection: %+v", err)
 				}
 				continue
 			}
@@ -366,14 +366,14 @@ func (rc *RunControl) handleCtlConn(ctx context.Context, conn net.Conn) {
 
 	req, err := RecvFrame(ctx, conn)
 	if err != nil {
-		rc.msg.Errorf("could not receive /join cmd from conn %v: %v", conn.RemoteAddr(), err)
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %+v", conn.RemoteAddr(), err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
 
 	join, err := newJoinCmd(req)
 	if err != nil {
-		rc.msg.Errorf("could not receive /join cmd from conn %v: %v", conn.RemoteAddr(), err)
+		rc.msg.Errorf("could not receive /join cmd from conn %v: %+v", conn.RemoteAddr(), err)
 		sendFrame(ctx, conn, FrameErr, nil, []byte(err.Error()))
 		return
 	}
@@ -623,7 +623,7 @@ func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 		rc.msg.Debugf("sending cmd %v to %q...", cmd, proc.name)
 		err := sendCmd(ctx, proc.cmd, cmd, nil)
 		if err != nil {
-			rc.msg.Errorf("could not send cmd %v to %q: %v", cmd, proc.name, err)
+			rc.msg.Errorf("could not send cmd %v to %q: %+v", cmd, proc.name, err)
 			berr = append(berr, err)
 			continue
 		}
@@ -930,7 +930,7 @@ func (rc *RunControl) doHeartbeat(ctx context.Context) error {
 
 			ack, err := RecvFrame(ctx, proc.hbeat)
 			if err != nil {
-				rc.msg.Errorf("could not receive ACK: %v", err)
+				rc.msg.Errorf("could not receive ACK: %+v", err)
 				return err
 			}
 			switch ack.Type {

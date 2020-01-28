@@ -334,7 +334,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 		err = SendFrame(ctx, w, resp)
 		if err != nil {
-			srv.msg.Warnf("could not send ack cmd: %v", err)
+			srv.msg.Warnf("could not send ack cmd: %+v", err)
 		}
 	}
 
@@ -382,7 +382,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	tctx := Context{Ctx: ctx, Msg: srv.msg}
 	errPre := onCmd(tctx, req)
 	if errPre != nil {
-		srv.msg.Warnf("could not run %v pre-handler: %v", name, errPre)
+		srv.msg.Warnf("could not run %v pre-handler: %+v", name, errPre)
 		resp.Type = FrameErr
 		resp.Body = []byte(errPre.Error())
 		next = fsm.Error
@@ -390,7 +390,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 
 	errH := h(tctx, &resp, req)
 	if errH != nil {
-		srv.msg.Warnf("could not run %v handler: %v", name, errH)
+		srv.msg.Warnf("could not run %v handler: %+v", name, errH)
 		resp.Type = FrameErr
 		resp.Body = []byte(errH.Error())
 		next = fsm.Error
@@ -404,7 +404,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	default:
 		err = SendFrame(ctx, w, resp)
 		if err != nil {
-			srv.msg.Warnf("could not send ack cmd: %v", err)
+			srv.msg.Warnf("could not send ack cmd: %+v", err)
 		}
 	}
 }

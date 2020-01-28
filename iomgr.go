@@ -120,7 +120,7 @@ func (mgr *imgr) onReset(ctx Context) error {
 		e := conn.Close()
 		if e != nil {
 			err = e
-			ctx.Msg.Errorf("could not close incoming end-point %q: %v", k, err)
+			ctx.Msg.Errorf("could not close incoming end-point %q: %+v", k, err)
 			continue
 		}
 	}
@@ -199,7 +199,7 @@ func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) erro
 
 				err = f(ctx, frame)
 				if err != nil {
-					ctx.Msg.Errorf("could not process data frame for %q: %v", ep, err)
+					ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
 					continue
 				}
 			}
@@ -294,7 +294,7 @@ func (mgr *omgr) onReset(ctx Context) error {
 		e := op.onReset()
 		if e != nil {
 			err = e
-			ctx.Msg.Errorf("could not /reset outgoing end-point %q: %v", k, err)
+			ctx.Msg.Errorf("could not /reset outgoing end-point %q: %+v", k, err)
 		}
 	}
 
@@ -486,7 +486,7 @@ func (o *oport) accept() {
 		conn, err := o.l.Accept()
 		if err != nil {
 			if o.srv.getCurState() != fsm.Exiting {
-				o.srv.msg.Errorf("could not accept conn for end-point %q: %v", o.name, err)
+				o.srv.msg.Errorf("could not accept conn for end-point %q: %+v", o.name, err)
 			}
 			var nerr net.Error
 			if xerrors.Is(err, nerr); nerr != nil && nerr.Temporary() {

@@ -37,7 +37,7 @@ func main() {
 
 	err := srv.Run(context.Background())
 	if err != nil {
-		log.Panicf("error: %v", err)
+		log.Panicf("error: %+v", err)
 	}
 }
 
