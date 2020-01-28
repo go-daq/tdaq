@@ -1,10 +1,17 @@
 language: go
 go_import_path: github.com/go-daq/tdaq
-os:
-  - linux
 
-env:
- - TAGS=""
+go:
+ - 1.13.x
+ - 1.12.x
+
+os:
+ - linux
+ - osx
+
+arch:
+ - amd64
+ - arm64
 
 cache:
  directories:
@@ -21,15 +28,15 @@ matrix:
      env:
        - TAGS=""
        - COVERAGE="-coverpkg=github.com/go-daq/tdaq/..."
-   - go: 1.12.x
-     env:
-       - TAGS=""
    - go: master
      env:
        - TAGS=""
        - COVERAGE="-race"
-       - GOPROXY="https://proxy.golang.org"
-       - GO111MODULE="on"
+ exclude:
+   - os: windows
+     arch: arm64
+   - os: windows
+     go: master
 
 sudo: required
 
