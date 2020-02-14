@@ -20,7 +20,6 @@ type CmdType byte
 const (
 	CmdUnknown CmdType = iota
 	CmdJoin
-	CmdHBeat
 	CmdConfig
 	CmdInit
 	CmdReset
@@ -36,8 +35,6 @@ func (cmd CmdType) String() string {
 		return "/unknown"
 	case CmdJoin:
 		return "/join"
-	case CmdHBeat:
-		return "/hbeat"
 	case CmdConfig:
 		return "/config"
 	case CmdInit:
@@ -60,7 +57,6 @@ func (cmd CmdType) String() string {
 var cmdNames = [...][]byte{
 	CmdUnknown: []byte(CmdUnknown.String()),
 	CmdJoin:    []byte(CmdJoin.String()),
-	CmdHBeat:   []byte(CmdHBeat.String()),
 	CmdConfig:  []byte(CmdConfig.String()),
 	CmdInit:    []byte(CmdInit.String()),
 	CmdReset:   []byte(CmdReset.String()),
@@ -195,47 +191,6 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	return dec.err
 }
 
-type HBeatCmd struct {
-	Name string // name of the TDAQ process
-	Addr string // address of the heartbeat server
-}
-
-func newHBeatCmd(frame Frame) (HBeatCmd, error) {
-	var (
-		cmd HBeatCmd
-		err error
-	)
-
-	raw, err := cmdFrom(frame)
-	if err != nil {
-		return cmd, xerrors.Errorf("not a /hbeat cmd: %w", err)
-	}
-
-	if raw.Type != CmdHBeat {
-		return cmd, xerrors.Errorf("not a /hbeat cmd")
-	}
-
-	err = cmd.UnmarshalTDAQ(raw.Body)
-	return cmd, err
-}
-
-func (cmd HBeatCmd) CmdType() CmdType { return CmdHBeat }
-
-func (cmd HBeatCmd) MarshalTDAQ() ([]byte, error) {
-	buf := new(bytes.Buffer)
-	enc := NewEncoder(buf)
-	enc.WriteStr(cmd.Name)
-	enc.WriteStr(cmd.Addr)
-	return buf.Bytes(), enc.err
-}
-
-func (cmd *HBeatCmd) UnmarshalTDAQ(p []byte) error {
-	dec := NewDecoder(bytes.NewReader(p))
-	cmd.Name = dec.ReadStr()
-	cmd.Addr = dec.ReadStr()
-	return dec.err
-}
-
 type ConfigCmd struct {
 	Name         string
 	InEndPoints  []EndPoint
@@ -354,10 +309,6 @@ var (
 	_ Cmder       = (*JoinCmd)(nil)
 	_ Marshaler   = (*JoinCmd)(nil)
 	_ Unmarshaler = (*JoinCmd)(nil)
-
-	_ Cmder       = (*HBeatCmd)(nil)
-	_ Marshaler   = (*HBeatCmd)(nil)
-	_ Unmarshaler = (*HBeatCmd)(nil)
 
 	_ Cmder       = (*ConfigCmd)(nil)
 	_ Marshaler   = (*ConfigCmd)(nil)

@@ -35,13 +35,6 @@ func TestCommands(t *testing.T) {
 			},
 		},
 		{
-			name: "hbeat",
-			want: &tdaq.HBeatCmd{
-				Name: "n1",
-				Addr: "localhost:44001",
-			},
-		},
-		{
 			name: "config",
 			want: &tdaq.ConfigCmd{
 				Name: "n1",
@@ -142,7 +135,6 @@ func TestCmdType(t *testing.T) {
 	}{
 		{cmd: tdaq.CmdUnknown, want: "/unknown"},
 		{cmd: tdaq.CmdJoin, want: "/join"},
-		{cmd: tdaq.CmdHBeat, want: "/hbeat"},
 		{cmd: tdaq.CmdConfig, want: "/config"},
 		{cmd: tdaq.CmdInit, want: "/init"},
 		{cmd: tdaq.CmdReset, want: "/reset"},
