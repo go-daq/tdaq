@@ -84,13 +84,6 @@ func TestCommands(t *testing.T) {
 			name: "status-error",
 			want: &tdaq.StatusCmd{Name: "n1", Status: fsm.Error},
 		},
-		{
-			name: "log",
-			want: &tdaq.LogCmd{
-				Name: "n1",
-				Addr: "localhost:44001",
-			},
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			{
@@ -157,7 +150,6 @@ func TestCmdType(t *testing.T) {
 		{cmd: tdaq.CmdStop, want: "/stop"},
 		{cmd: tdaq.CmdQuit, want: "/quit"},
 		{cmd: tdaq.CmdStatus, want: "/status"},
-		{cmd: tdaq.CmdLog, want: "/log"},
 		{cmd: tdaq.CmdType(255), panics: true},
 	} {
 		t.Run("", func(t *testing.T) {
