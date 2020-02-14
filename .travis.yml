@@ -3,7 +3,6 @@ go_import_path: github.com/go-daq/tdaq
 
 go:
  - 1.13.x
- - 1.12.x
 
 os:
  - linux
