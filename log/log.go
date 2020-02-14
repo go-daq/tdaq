@@ -56,12 +56,12 @@ func (lvl Level) String() string {
 
 // MsgStream provides access to verbosity-defined formated messages, a la fmt.Printf.
 type MsgStream interface {
-	Debugf(format string, a ...interface{}) (int, error)
-	Infof(format string, a ...interface{}) (int, error)
-	Warnf(format string, a ...interface{}) (int, error)
-	Errorf(format string, a ...interface{}) (int, error)
+	Debugf(format string, a ...interface{})
+	Infof(format string, a ...interface{})
+	Warnf(format string, a ...interface{})
+	Errorf(format string, a ...interface{})
 
-	Msg(lvl Level, format string, a ...interface{}) (int, error)
+	Msg(lvl Level, format string, a ...interface{})
 }
 
 type msgstream struct {
@@ -75,34 +75,33 @@ var (
 )
 
 // Debugf displays a (formated) DBG message
-func Debugf(format string, a ...interface{}) (int, error) {
-	return Default.Debugf(format, a...)
+func Debugf(format string, a ...interface{}) {
+	Default.Debugf(format, a...)
 }
 
 // Infof displays a (formated) INFO message
-func Infof(format string, a ...interface{}) (int, error) {
-	return Default.Infof(format, a...)
+func Infof(format string, a ...interface{}) {
+	Default.Infof(format, a...)
 }
 
 // Warnf displays a (formated) WARN message
-func Warnf(format string, a ...interface{}) (int, error) {
-	return Default.Warnf(format, a...)
+func Warnf(format string, a ...interface{}) {
+	Default.Warnf(format, a...)
 }
 
 // Errorf displays a (formated) ERR message
-func Errorf(format string, a ...interface{}) (int, error) {
-	return Default.Errorf(format, a...)
+func Errorf(format string, a ...interface{}) {
+	Default.Errorf(format, a...)
 }
 
 // Fatalf displays a (formated) ERR message and stops the program.
-func Fatalf(format string, a ...interface{}) (int, error) {
+func Fatalf(format string, a ...interface{}) {
 	Default.Errorf(format, a...)
 	os.Exit(1)
-	panic("not reachable")
 }
 
 // Panicf displays a (formated) ERR message and panics.
-func Panicf(format string, a ...interface{}) (int, error) {
+func Panicf(format string, a ...interface{}) {
 	Default.Errorf(format, a...)
 	panic("tdaq panic")
 }
@@ -127,36 +126,36 @@ func newMsgStream(name string, lvl Level, w io.Writer) msgstream {
 }
 
 // Debugf displays a (formated) DBG message
-func (msg msgstream) Debugf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(LvlDebug, format, a...)
+func (msg msgstream) Debugf(format string, a ...interface{}) {
+	msg.Msg(LvlDebug, format, a...)
 }
 
 // Infof displays a (formated) INFO message
-func (msg msgstream) Infof(format string, a ...interface{}) (int, error) {
-	return msg.Msg(LvlInfo, format, a...)
+func (msg msgstream) Infof(format string, a ...interface{}) {
+	msg.Msg(LvlInfo, format, a...)
 }
 
 // Warnf displays a (formated) WARN message
-func (msg msgstream) Warnf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(LvlWarning, format, a...)
+func (msg msgstream) Warnf(format string, a ...interface{}) {
+	msg.Msg(LvlWarning, format, a...)
 }
 
 // Errorf displays a (formated) ERR message
-func (msg msgstream) Errorf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(LvlError, format, a...)
+func (msg msgstream) Errorf(format string, a ...interface{}) {
+	msg.Msg(LvlError, format, a...)
 }
 
 // Msg displays a (formated) message with level lvl.
-func (msg msgstream) Msg(lvl Level, format string, a ...interface{}) (int, error) {
+func (msg msgstream) Msg(lvl Level, format string, a ...interface{}) {
 	if lvl < msg.lvl {
-		return 0, nil
+		return
 	}
 	eol := ""
 	if !strings.HasSuffix(format, "\n") {
 		eol = "\n"
 	}
 	format = msg.n + lvl.MsgString() + " " + format + eol
-	return fmt.Fprintf(msg.w, format, a...)
+	fmt.Fprintf(msg.w, format, a...)
 }
 
 var (

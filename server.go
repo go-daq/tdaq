@@ -651,32 +651,32 @@ func newMsgStream(name string, lvl log.Level, w io.Writer) *msgstream {
 }
 
 // Debugf displays a (formated) DBG message
-func (msg *msgstream) Debugf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(log.LvlDebug, format, a...)
+func (msg *msgstream) Debugf(format string, a ...interface{}) {
+	msg.Msg(log.LvlDebug, format, a...)
 }
 
 // Infof displays a (formated) INFO message
-func (msg *msgstream) Infof(format string, a ...interface{}) (int, error) {
-	return msg.Msg(log.LvlInfo, format, a...)
+func (msg *msgstream) Infof(format string, a ...interface{}) {
+	msg.Msg(log.LvlInfo, format, a...)
 }
 
 // Warnf displays a (formated) WARN message
-func (msg *msgstream) Warnf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(log.LvlWarning, format, a...)
+func (msg *msgstream) Warnf(format string, a ...interface{}) {
+	msg.Msg(log.LvlWarning, format, a...)
 }
 
 // Errorf displays a (formated) ERR message
-func (msg *msgstream) Errorf(format string, a ...interface{}) (int, error) {
-	return msg.Msg(log.LvlError, format, a...)
+func (msg *msgstream) Errorf(format string, a ...interface{}) {
+	msg.Msg(log.LvlError, format, a...)
 }
 
 // Msg displays a (formated) message with level lvl.
-func (msg *msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, error) {
+func (msg *msgstream) Msg(lvl log.Level, format string, a ...interface{}) {
 	msg.mu.Lock()
 	defer msg.mu.Unlock()
 
 	if lvl < msg.lvl {
-		return 0, nil
+		return
 	}
 	eol := ""
 	if !strings.HasSuffix(format, "\n") {
@@ -693,7 +693,7 @@ func (msg *msgstream) Msg(lvl log.Level, format string, a ...interface{}) (int, 
 		})
 	}
 
-	return msg.w.Write(str)
+	_, _ = msg.w.Write(str)
 }
 
 func (msg *msgstream) setLog(conn net.Conn) {
