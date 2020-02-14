@@ -5,12 +5,12 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
-	"bytes"
 	"context"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/log"
 )
 
@@ -31,7 +31,7 @@ func TestMsgFrame(t *testing.T) {
 		{Name: "n4", Level: log.LvlError, Msg: strings.Repeat("0123456789", 80)},
 	} {
 		t.Run(tt.Name, func(t *testing.T) {
-			buf := new(bytes.Buffer)
+			buf := new(iomux.Socket)
 			err := SendMsg(ctx, buf, tt)
 			if err != nil {
 				t.Fatalf("could not send msg-frame: %+v", err)
@@ -72,7 +72,6 @@ func TestFrame(t *testing.T) {
 		{
 			name: "data",
 			frame: Frame{
-				Len:  12,
 				Type: FrameData,
 				Path: "/adc",
 				Body: []byte("ADC DATA"),
@@ -96,7 +95,7 @@ func TestFrame(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := new(bytes.Buffer)
+			buf := new(iomux.Socket)
 			err := SendFrame(ctx, buf, tt.frame)
 			if err != nil {
 				t.Fatalf("could not send frame: %+v", err)

@@ -15,7 +15,7 @@ import (
 type Process struct {
 	Name   string    // name of the TDAQ process
 	Level  log.Level // verbosity level of the TDAQ process
-	Net    string    // network used for the TDAQ network ("tcp", "unix")
+	Trans  string    // network used for the TDAQ network ("tcp", "ipc", ...)
 	RunCtl string    // address of the run-ctl of the flock of TDAQ processes
 
 	Args []string // additional flag arguments
@@ -25,7 +25,7 @@ type Process struct {
 type RunCtl struct {
 	Name   string    // name of the run-ctl process
 	Level  log.Level // verbosity level of the run-ctl process
-	Net    string    // network used for the TDAQ network ("tcp", "unix")
+	Trans  string    // network used for the TDAQ network ("tcp", "ipc", ...)
 	RunCtl string    // address of the run-ctl cmd server
 	Web    string    // address of the HTTP run-ctl web server
 
@@ -35,4 +35,12 @@ type RunCtl struct {
 	HBeatFreq time.Duration // frequency for heartbeat server
 
 	Args []string // additional flag arguments
+}
+
+func (cfg RunCtl) Addr() string {
+	return cfg.Trans + "://" + cfg.RunCtl
+}
+
+func (cfg Process) Addr() string {
+	return cfg.Trans + "://" + cfg.RunCtl
 }

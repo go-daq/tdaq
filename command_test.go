@@ -5,13 +5,13 @@
 package tdaq_test // import "github.com/go-daq/tdaq"
 
 import (
-	"bytes"
 	"context"
 	"reflect"
 	"testing"
 
 	"github.com/go-daq/tdaq"
 	"github.com/go-daq/tdaq/fsm"
+	"github.com/go-daq/tdaq/internal/iomux"
 )
 
 func TestCommands(t *testing.T) {
@@ -94,7 +94,7 @@ func TestCommands(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			{
-				buf := new(bytes.Buffer)
+				buf := new(iomux.Socket)
 				enc := tdaq.NewEncoder(buf)
 				err := enc.Encode(tt.want)
 				if err != nil {
@@ -114,7 +114,7 @@ func TestCommands(t *testing.T) {
 			}
 
 			{
-				buf := new(bytes.Buffer)
+				buf := new(iomux.Socket)
 				ctx := context.Background()
 
 				err := tdaq.SendCmd(ctx, buf, tt.want.(tdaq.Cmder))

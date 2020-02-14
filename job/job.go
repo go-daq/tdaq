@@ -85,7 +85,7 @@ func New(network string, stdout io.Writer) *App {
 		Cfg: config.RunCtl{
 			Name:      "run-ctl",
 			Level:     log.LvlInfo,
-			Net:       network,
+			Trans:     network,
 			RunCtl:    ":44000",
 			Web:       ":8080",
 			HBeatFreq: 50 * time.Millisecond,
@@ -148,7 +148,7 @@ func (app *App) Start() error {
 		cfg := config.Process{
 			Name:   p.Name,
 			Level:  p.Level,
-			Net:    app.Cfg.Net,
+			Trans:  app.Cfg.Trans,
 			RunCtl: app.Cfg.RunCtl,
 		}
 

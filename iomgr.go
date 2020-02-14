@@ -5,13 +5,15 @@
 package tdaq // import "github.com/go-daq/tdaq"
 
 import (
-	"bytes"
 	"context"
 	"net"
 	"sort"
 	"sync"
 
 	"github.com/go-daq/tdaq/fsm"
+	"go.nanomsg.org/mangos/v3"
+	"go.nanomsg.org/mangos/v3/protocol/pub"
+	"go.nanomsg.org/mangos/v3/protocol/xsub"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -24,7 +26,7 @@ type OutputHandler func(ctx Context, dst *Frame) error
 type imgr struct {
 	srv *Server
 	mu  sync.RWMutex
-	ps  map[string]net.Conn
+	ps  map[string]mangos.Socket
 	ep  map[string]InputHandler
 	cfg ConfigCmd
 
@@ -35,7 +37,7 @@ type imgr struct {
 func newIMgr(srv *Server) *imgr {
 	return &imgr{
 		srv: srv,
-		ps:  make(map[string]net.Conn),
+		ps:  make(map[string]mangos.Socket),
 		ep:  make(map[string]InputHandler),
 	}
 }
@@ -96,12 +98,17 @@ func (mgr *imgr) onConfig(ctx Context, src Frame) error {
 }
 
 func (mgr *imgr) dial(ep EndPoint) error {
-	conn, err := net.Dial(mgr.srv.cfg.Net, ep.Addr)
+	sck, err := xsub.NewSocket()
+	if err != nil {
+		return xerrors.Errorf("could not create XSUB socket for ep=%q: %w",
+			ep.Name, err,
+		)
+	}
+	err = sck.Dial(ep.Addr)
 	if err != nil {
 		return xerrors.Errorf("could not dial %q end-point (ep=%q): %w", ep.Addr, ep.Name, err)
 	}
-	setupConn(conn)
-	mgr.ps[ep.Name] = conn
+	mgr.ps[ep.Name] = sck
 
 	return nil
 }
@@ -171,17 +178,15 @@ func (mgr *imgr) onStop(ctx Context) error {
 	case <-ctx.Ctx.Done():
 		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
-
-	return xerrors.Errorf("impossible")
 }
 
-func (mgr *imgr) run(ctx Context, ep string, conn net.Conn, f InputHandler) error {
+func (mgr *imgr) run(ctx Context, ep string, sck mangos.Socket, f InputHandler) error {
 	for {
 		select {
 		case <-ctx.Ctx.Done():
 			return nil
 		default:
-			frame, err := RecvFrame(ctx.Ctx, conn)
+			frame, err := RecvFrame(ctx.Ctx, sck)
 			switch {
 			default:
 				switch state := mgr.srv.getNextState(); state {
@@ -250,13 +255,23 @@ func (mgr *omgr) init(srv *Server) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
+	return mgr.makeListeners(srv)
+}
+
+func (mgr *omgr) makeListeners(srv *Server) error {
 	for ep := range mgr.ep {
-		l, err := net.Listen(srv.cfg.Net, ":0")
+		sck, lis, err := makeListener(pub.NewSocket, func() string {
+			switch p, ok := mgr.ps[ep]; {
+			case ok:
+				return p.addr // re-use previous run's address
+			default:
+				return makeAddr(mgr.srv.cfg)
+			}
+		}())
 		if err != nil {
 			return xerrors.Errorf("could not setup output port %q: %w", ep, err)
 		}
-		o := &oport{name: ep, l: l, srv: srv}
-		go o.accept()
+		o := &oport{name: ep, addr: lis.Address(), srv: srv, l: lis, pub: sck}
 		mgr.ps[ep] = o
 	}
 
@@ -276,7 +291,7 @@ func (mgr *omgr) endpoints() []EndPoint {
 
 		eps = append(eps, EndPoint{
 			Name: k,
-			Addr: l.l.Addr().String(),
+			Addr: l.l.Address(),
 			Type: "", // FIXME(sbinet)
 		})
 	}
@@ -298,7 +313,11 @@ func (mgr *omgr) onReset(ctx Context) error {
 		}
 	}
 
-	return err
+	if err != nil {
+		return xerrors.Errorf("could not /reset outgoing end-points: %w", err)
+	}
+
+	return mgr.makeListeners(mgr.srv)
 }
 
 func (mgr *omgr) onStart(ctx Context) error {
@@ -343,13 +362,9 @@ func (mgr *omgr) onStop(ctx Context) error {
 	case <-ctx.Ctx.Done():
 		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
-
-	return xerrors.Errorf("impossible")
 }
 
 func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
-	buf := new(bytes.Buffer)
-
 	for {
 		select {
 		case <-ctx.Ctx.Done():
@@ -371,14 +386,8 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
 				continue
 			}
 
-			buf.Reset()
-			err = SendFrame(ctx.Ctx, buf, resp)
-			if err != nil {
-				ctx.Msg.Errorf("could not serialize data frame for %q: %+v", ep, err)
-				continue
-			}
-
-			err = op.send(buf.Bytes())
+			msg := resp.encode()
+			err = op.send(msg)
 			if err != nil {
 				switch state := mgr.srv.getNextState(); state {
 				case fsm.Stopped:
@@ -464,71 +473,30 @@ func (mgr *cmdmgr) endpoint(name string) (CmdHandler, bool) {
 }
 
 type oport struct {
-	name  string
-	srv   *Server
-	l     net.Listener
-	mu    sync.RWMutex
-	conns []net.Conn
+	name string
+	addr string
+	srv  *Server
+	l    mangos.Listener
+	pub  mangos.Socket
 }
 
 func (o *oport) close() {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	_ = o.l.Close()
-	for i := range o.conns {
-		_ = o.conns[i].Close()
-	}
-}
-
-func (o *oport) accept() {
-	for {
-		conn, err := o.l.Accept()
-		if err != nil {
-			if o.srv.getCurState() != fsm.Exiting {
-				o.srv.msg.Errorf("could not accept conn for end-point %q: %+v", o.name, err)
-			}
-			var nerr net.Error
-			if xerrors.Is(err, nerr); nerr != nil && nerr.Temporary() {
-				continue
-			}
-			return
-		}
-		setupConn(conn)
-
-		o.mu.Lock()
-		o.conns = append(o.conns, conn)
-		o.mu.Unlock()
-	}
+	_ = o.pub.Close()
 }
 
 func (o *oport) onReset() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	var err error
-	for _, conn := range o.conns {
-		e := conn.Close()
-		if e != nil {
-			err = e
-		}
+	e1 := o.l.Close()
+	e2 := o.pub.Close()
+	if e1 != nil {
+		return e1
 	}
-	o.conns = o.conns[:0]
-
-	return err
+	if e2 != nil {
+		return e2
+	}
+	return nil
 }
 
 func (o *oport) send(data []byte) error {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-
-	var grp errgroup.Group
-	for i := range o.conns {
-		conn := o.conns[i]
-		grp.Go(func() error {
-			_, err := conn.Write(data)
-			return err
-		})
-	}
-	return grp.Wait()
+	return o.pub.Send(data)
 }

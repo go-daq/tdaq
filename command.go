@@ -9,7 +9,6 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"io"
 
 	"github.com/go-daq/tdaq/fsm"
 	"golang.org/x/xerrors"
@@ -102,7 +101,7 @@ func cmdFrom(frame Frame) (Cmd, error) {
 	return cmd, nil
 }
 
-func SendCmd(ctx context.Context, w io.Writer, cmd Cmder) error {
+func SendCmd(ctx context.Context, sck Sender, cmd Cmder) error {
 	raw, err := cmd.MarshalTDAQ()
 	if err != nil {
 		return xerrors.Errorf("could not marshal cmd: %w", err)
@@ -110,27 +109,19 @@ func SendCmd(ctx context.Context, w io.Writer, cmd Cmder) error {
 
 	ctype := cmd.CmdType()
 	path := cmdTypeToPath(cmd.CmdType())
-	return sendFrame(ctx, w, FrameCmd, path, append([]byte{byte(ctype)}, raw...))
+	return sendFrame(ctx, sck, FrameCmd, path, append([]byte{byte(ctype)}, raw...))
 }
 
-func sendCmd(ctx context.Context, w io.Writer, ctype CmdType, body []byte) error {
+func sendCmd(ctx context.Context, sck Sender, ctype CmdType, body []byte) error {
 	path := cmdTypeToPath(ctype)
-	return sendFrame(ctx, w, FrameCmd, path, append([]byte{byte(ctype)}, body...))
-}
-
-func recvCmd(ctx context.Context, r io.Reader) (cmd Cmd, err error) {
-	frame, err := RecvFrame(ctx, r)
-	if err != nil {
-		return cmd, xerrors.Errorf("could not receive TDAQ cmd: %w", err)
-	}
-	if frame.Type != FrameCmd {
-		return cmd, xerrors.Errorf("did not receive a TDAQ cmd")
-	}
-	return Cmd{Type: CmdType(frame.Body[0]), Body: frame.Body[1:]}, nil
+	return sendFrame(ctx, sck, FrameCmd, path, append([]byte{byte(ctype)}, body...))
 }
 
 type JoinCmd struct {
-	Name         string
+	Name         string // name of the process placing the /join command
+	Ctl          string // address of ctl-REP socket of the process
+	HBeat        string // address of hbeat-REP socket of the process
+	Log          string // address of log-PUB socket of the process
 	InEndPoints  []EndPoint
 	OutEndPoints []EndPoint
 }
@@ -160,6 +151,9 @@ func (cmd JoinCmd) MarshalTDAQ() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
 	enc.WriteStr(cmd.Name)
+	enc.WriteStr(cmd.Ctl)
+	enc.WriteStr(cmd.HBeat)
+	enc.WriteStr(cmd.Log)
 
 	enc.WriteI32(int32(len(cmd.InEndPoints)))
 	for _, ep := range cmd.InEndPoints {
@@ -181,6 +175,9 @@ func (cmd *JoinCmd) UnmarshalTDAQ(p []byte) error {
 	dec := NewDecoder(bytes.NewReader(p))
 
 	cmd.Name = dec.ReadStr()
+	cmd.Ctl = dec.ReadStr()
+	cmd.HBeat = dec.ReadStr()
+	cmd.Log = dec.ReadStr()
 	n := int(dec.ReadI32())
 	cmd.InEndPoints = make([]EndPoint, n)
 	for i := range cmd.InEndPoints {

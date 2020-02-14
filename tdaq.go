@@ -8,10 +8,6 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
-	"io"
-	"math"
-	"net"
 
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/xerrors"
@@ -30,12 +26,33 @@ type Unmarshaler interface {
 	UnmarshalTDAQ(p []byte) error
 }
 
+type Sender interface {
+	Send(msg []byte) error
+}
+
+type Recver interface {
+	Recv() ([]byte, error)
+}
+
 // Frame is the datum being exchanged between tdaq processes.
 type Frame struct {
-	Len  int32     // length of frame (Type+Path+Body)
 	Type FrameType // type of frame (cmd,data,err,ok)
 	Path string    // end-point path
 	Body []byte    // frame payload
+}
+
+func (f Frame) encode() []byte {
+	psz := len(f.Path)
+	bsz := len(f.Body)
+	beg := 2
+	end := beg + psz
+	msg := make([]byte, 1+1+psz+bsz)
+	msg[0] = byte(f.Type)
+	msg[1] = byte(psz)
+	copy(msg[beg:end], []byte(f.Path))
+	copy(msg[end:], f.Body)
+
+	return msg
 }
 
 // FrameType describes the type of a Frame.
@@ -73,70 +90,50 @@ func (ft FrameType) String() string {
 }
 
 var (
-	eofFrame []byte
+	eofFrame = []byte{byte(FrameEOF), 0}
 )
 
-func init() {
-	buf := new(bytes.Buffer)
-	err := sendFrame(context.Background(), buf, FrameEOF, nil, nil)
-	if err != nil {
-		panic(xerrors.Errorf("tdaq: could not pre-serialize eof-frame: %w", err))
-	}
-	eofFrame = buf.Bytes()
-}
-
-func SendMsg(ctx context.Context, w io.Writer, msg MsgFrame) error {
+func SendMsg(ctx context.Context, sck Sender, msg MsgFrame) error {
 	raw, err := msg.MarshalTDAQ()
 	if err != nil {
 		return err
 	}
-	return sendFrame(ctx, w, FrameMsg, []byte("/log"), raw)
+	return sendFrame(ctx, sck, FrameMsg, []byte("/log"), raw)
 }
 
-func SendFrame(ctx context.Context, w io.Writer, frame Frame) error {
-	return sendFrame(ctx, w, frame.Type, []byte(frame.Path), frame.Body)
+func SendFrame(ctx context.Context, sck Sender, frame Frame) error {
+	return sendFrame(ctx, sck, frame.Type, []byte(frame.Path), frame.Body)
 }
 
-func sendFrame(ctx context.Context, w io.Writer, ftype FrameType, path, body []byte) error {
+func sendFrame(ctx context.Context, sck Sender, ftype FrameType, path, body []byte) error {
 
-	hdr := make([]byte, 4+1+1)
-	binary.LittleEndian.PutUint32(hdr, uint32(len(path))+uint32(len(body)))
-	hdr[4] = byte(ftype)
-	hdr[5] = byte(len(path))
-	r := io.MultiReader(bytes.NewReader(hdr), bytes.NewReader(path), bytes.NewReader(body))
-	_, err := io.Copy(w, r)
-	return err
+	psz := len(path)
+	bsz := len(body)
+	beg := 2
+	end := beg + psz
+	msg := make([]byte, 1+1+psz+bsz)
+	msg[0] = byte(ftype)
+	msg[1] = byte(psz)
+	copy(msg[beg:end], []byte(path))
+	copy(msg[end:], body)
+	return sck.Send(msg)
 }
 
-func RecvFrame(ctx context.Context, r io.Reader) (frame Frame, err error) {
-	var hdr = make([]byte, 4+1+1)
-	_, err = io.ReadFull(r, hdr)
+func RecvFrame(ctx context.Context, sck Recver) (frame Frame, err error) {
+
+	msg, err := sck.Recv()
 	if err != nil {
-		return frame, xerrors.Errorf("could not receive TDAQ frame header: %w", err)
+		return frame, xerrors.Errorf("could not receive TDAQ frame: %w", err)
 	}
-	size := binary.LittleEndian.Uint32(hdr[:4])
-	frame.Len = int32(size)
-	frame.Type = FrameType(hdr[4])
-	if size == 0 {
-		return frame, nil
-	}
+	frame.Type = FrameType(msg[0])
 
-	if size < 0 || size >= math.MaxInt32 {
-		return frame, xerrors.Errorf("corrupted frame (len=%d)", size)
+	psz := int(msg[1])
+	beg := 2
+	end := beg + psz
+	frame.Path = string(msg[beg:end])
+	if len(msg[end:]) > 0 {
+		frame.Body = msg[end:]
 	}
-
-	if int(size) < int(hdr[5]) {
-		return frame, xerrors.Errorf("corrupted frame (len=%d, hdr=%d)", size, hdr[5])
-	}
-
-	raw := make([]byte, size)
-	_, err = io.ReadFull(r, raw)
-	if err != nil {
-		return frame, xerrors.Errorf("could not receive TDAQ frame body: %w", err)
-	}
-
-	frame.Path = string(raw[:int(hdr[5])])
-	frame.Body = raw[int(hdr[5]):]
 
 	return frame, nil
 }
@@ -187,18 +184,6 @@ func (ep *EndPoint) UnmarshalTDAQ(b []byte) error {
 	ep.Addr = dec.ReadStr()
 	ep.Type = dec.ReadStr()
 	return dec.err
-}
-
-// setupConn factorizes how connections should be configured.
-func setupConn(conn net.Conn) {
-	switch conn := conn.(type) {
-	case *net.TCPConn:
-		setupTCPConn(conn)
-	case *net.UnixConn:
-		// nothing to do?
-	default:
-		panic(xerrors.Errorf("invalid net.Conn type %T", conn))
-	}
 }
 
 var (

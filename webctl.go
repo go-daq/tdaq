@@ -133,11 +133,11 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 			rc.mu.RLock()
 			data.Status = rc.status.String()
 			data.Timestamp = time.Now().UTC().Format("2006-01-02 15:04:05") + " (UTC)"
-			for _, proc := range rc.procs {
+			for _, proc := range rc.clients {
 				data.Procs = append(data.Procs, struct {
 					Name   string `json:"name"`
 					Status string `json:"status"`
-				}{proc.name, proc.status.String()})
+				}{proc.name, proc.getStatus().String()})
 			}
 			rc.mu.RUnlock()
 			sort.Slice(data.Procs, func(i, j int) bool {

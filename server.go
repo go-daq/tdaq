@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
 	"sync"
@@ -17,6 +16,10 @@ import (
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/fsm"
 	"github.com/go-daq/tdaq/log"
+	"go.nanomsg.org/mangos/v3"
+	"go.nanomsg.org/mangos/v3/protocol/pub"
+	"go.nanomsg.org/mangos/v3/protocol/rep"
+	"go.nanomsg.org/mangos/v3/protocol/req"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
@@ -26,9 +29,18 @@ type Server struct {
 	name string
 	cfg  config.Process
 
-	rctl  net.Conn
-	hbeat net.Conn
-	log   net.Conn
+	rctl struct {
+		sck mangos.Socket
+		lis mangos.Listener
+	}
+	hbeat struct {
+		sck mangos.Socket
+		lis mangos.Listener
+	}
+	log struct {
+		sck mangos.Socket
+		lis mangos.Listener
+	}
 
 	mu   sync.RWMutex
 	msg  *msgstream
@@ -46,7 +58,9 @@ type Server struct {
 	rungrp  *errgroup.Group
 	runfcts []func(Context) error
 
-	quit chan struct{} // term channel
+	rpark chan int      // rctl parking signal
+	hpark chan int      // hbeat parking signal
+	done  chan struct{} // signal to prepare exiting
 }
 
 func New(cfg config.Process, stdout io.Writer) *Server {
@@ -55,7 +69,10 @@ func New(cfg config.Process, stdout io.Writer) *Server {
 	}
 
 	srv := &Server{
-		rc:   cfg.RunCtl,
+		rc: config.RunCtl{
+			Trans:  cfg.Trans,
+			RunCtl: cfg.RunCtl,
+		}.Addr(),
 		name: cfg.Name,
 		cfg:  cfg,
 		msg:  newMsgStream(cfg.Name, cfg.Level, stdout),
@@ -65,7 +82,9 @@ func New(cfg config.Process, stdout io.Writer) *Server {
 			"/status",
 		),
 
-		quit: make(chan struct{}),
+		rpark: make(chan int),
+		hpark: make(chan int),
+		done:  make(chan struct{}),
 	}
 	srv.imgr = newIMgr(srv)
 	srv.omgr = newOMgr(srv)
@@ -95,43 +114,54 @@ func (srv *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	rctl, err := net.Dial(srv.cfg.Net, srv.rc)
+	rctl, rlis, err := makeListener(rep.NewSocket, makeAddr(srv.cfg))
 	if err != nil {
-		return xerrors.Errorf("could not dial run-ctl: %w", err)
+		return xerrors.Errorf("could not create run-ctl socket: %w", err)
 	}
-	defer rctl.Close()
-	setupConn(rctl)
+	srv.rctl.sck = rctl
+	srv.rctl.lis = rlis
 
-	srv.rctl = rctl
+	hbeat, hlis, err := makeListener(rep.NewSocket, makeAddr(srv.cfg))
+	if err != nil {
+		return xerrors.Errorf("could not create hbeat socket: %w", err)
+	}
+	srv.hbeat.sck = hbeat
+	srv.hbeat.lis = hlis
 
-	defer srv.cmgr.close()
-	defer srv.imgr.close()
-	defer srv.omgr.close()
+	log, llis, err := makeListener(pub.NewSocket, makeAddr(srv.cfg))
+	if err != nil {
+		return xerrors.Errorf("could not create log socket: %w", err)
+	}
+	srv.log.sck = log
+	srv.log.lis = llis
+	srv.msg.setLog(log)
+
+	go srv.hbeatLoop(ctx)
+	go srv.cmdsLoop(ctx)
 
 	err = srv.omgr.init(srv)
 	if err != nil {
 		return xerrors.Errorf("could not setup i/o data ports: %w", err)
 	}
 
+	srv.cmgr.init()
+
 	err = srv.join(ctx)
 	if err != nil {
 		return xerrors.Errorf("could not join run-ctl: %w", err)
 	}
 
-	srv.cmgr.init()
-
-	go srv.hbeatLoop(ctx)
-	go srv.cmdsLoop(ctx)
+	defer srv.msg.Debugf("server closing...")
 
 	select {
-	case <-srv.quit:
+	case <-srv.done:
+		srv.close()
 		return nil
 	case <-ctx.Done():
-		close(srv.quit)
+		close(srv.done)
+		srv.close()
 		return ctx.Err()
 	}
-
-	return err
 }
 
 func (srv *Server) setCurState(state fsm.Status) {
@@ -168,111 +198,55 @@ func (srv *Server) join(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	sck, err := req.NewSocket()
+	if err != nil {
+		return xerrors.Errorf("could not create /join socket: %w", err)
+	}
+	defer sck.Close()
+
+	err = sck.Dial(srv.rc)
+	if err != nil {
+		return xerrors.Errorf(
+			"could not dial /join socket %q: %w",
+			srv.rc, err,
+		)
+	}
+
 	select {
-	case <-srv.quit:
+	case <-srv.done:
 		return xerrors.Errorf("could not /join run-ctl before exiting")
 	case <-ctx.Done():
 		return xerrors.Errorf("could not /join run-ctl before timeout: %w", ctx.Err())
 	default:
-		join := JoinCmd{
-			Name:         srv.name,
-			InEndPoints:  srv.imgr.endpoints(),
-			OutEndPoints: srv.omgr.endpoints(),
-		}
-
-		err := SendCmd(ctx, srv.rctl, &join)
-		if err != nil {
-			return xerrors.Errorf("could not send /join cmd to run-ctl: %w", err)
-		}
-
-		frame, err := RecvFrame(ctx, srv.rctl)
-		if err != nil {
-			return xerrors.Errorf("could not recv /join-ack from run-ctl: %w", err)
-		}
-		switch frame.Type {
-		case FrameOK:
-			// OK
-		case FrameErr:
-			return xerrors.Errorf("received error /join-ack from run-ctl: %s", frame.Body)
-		default:
-			return xerrors.Errorf("received invalid /join-ack frame from run-ctl (frame=%#v)", frame)
-		}
-
-		err = srv.setupLogCmd(ctx)
-		if err != nil {
-			return xerrors.Errorf("could not setup /log cmd: %w", err)
-		}
-
-		err = srv.setupHBeatCmd(ctx)
-		if err != nil {
-			return xerrors.Errorf("could not setup /hbeat cmd: %w", err)
-		}
 	}
 
-	return nil
-}
+	join := JoinCmd{
+		Name:         srv.name,
+		Ctl:          srv.rctl.lis.Address(),
+		HBeat:        srv.hbeat.lis.Address(),
+		Log:          srv.log.lis.Address(),
+		InEndPoints:  srv.imgr.endpoints(),
+		OutEndPoints: srv.omgr.endpoints(),
+	}
 
-func (srv *Server) setupLogCmd(ctx context.Context) error {
-	frame, err := RecvFrame(ctx, srv.rctl)
+	err = SendCmd(ctx, sck, &join)
 	if err != nil {
-		return xerrors.Errorf("could not recv /log cmd from run-ctl: %w", err)
-	}
-	if frame.Type != FrameCmd {
-		return xerrors.Errorf("received invalid /log cmd from run-ctl: type=%v", frame.Type)
+		return xerrors.Errorf("could not send /join cmd to run-ctl: %w", err)
 	}
 
-	cmd, err := newLogCmd(frame)
+	frame, err := RecvFrame(ctx, sck)
 	if err != nil {
-		return xerrors.Errorf("received invalid /log cmd from run-ctl: %w", err)
+		return xerrors.Errorf("could not recv /join-ack from run-ctl: %w", err)
 	}
-
-	ackOK := Frame{Type: FrameOK}
-	err = SendFrame(ctx, srv.rctl, ackOK)
-	if err != nil {
-		return xerrors.Errorf("could not send /log-ack to run-ctl: %w", err)
+	switch frame.Type {
+	case FrameOK:
+		// OK
+		return nil
+	case FrameErr:
+		return xerrors.Errorf("received error /join-ack from run-ctl: %s", frame.Body)
+	default:
+		return xerrors.Errorf("received invalid /join-ack frame from run-ctl (frame=%#v)", frame)
 	}
-
-	conn, err := net.Dial(srv.cfg.Net, cmd.Addr)
-	if err != nil {
-		return xerrors.Errorf("could not dial run-ctl log server: %w", err)
-	}
-	setupConn(conn)
-
-	srv.log = conn
-	srv.msg.setLog(srv.log)
-
-	return nil
-}
-
-func (srv *Server) setupHBeatCmd(ctx context.Context) error {
-	frame, err := RecvFrame(ctx, srv.rctl)
-	if err != nil {
-		return xerrors.Errorf("could not recv /hbeat cmd from run-ctl: %w", err)
-	}
-	if frame.Type != FrameCmd {
-		return xerrors.Errorf("received invalid /hbeat cmd from run-ctl: type=%v", frame.Type)
-	}
-
-	cmd, err := newHBeatCmd(frame)
-	if err != nil {
-		return xerrors.Errorf("received invalid /hbeat cmd from run-ctl: %w", err)
-	}
-
-	ackOK := Frame{Type: FrameOK}
-	err = SendFrame(ctx, srv.rctl, ackOK)
-	if err != nil {
-		return xerrors.Errorf("could not send /hbeat-ack to run-ctl: %w", err)
-	}
-
-	conn, err := net.Dial(srv.cfg.Net, cmd.Addr)
-	if err != nil {
-		return xerrors.Errorf("could not dial run-ctl hbeat server: %w", err)
-	}
-	setupConn(conn)
-
-	srv.hbeat = conn
-
-	return nil
 }
 
 func (srv *Server) cmdsLoop(ctx context.Context) {
@@ -281,14 +255,19 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 
 	for {
 		select {
-		case <-srv.quit:
+		case <-srv.rpark:
+			_ = srv.rctl.lis.Close()
+			_ = srv.rctl.sck.Close()
+			srv.rpark <- 1
+			return
+		case <-ctx.Done():
 			return
 		default:
-			frame, err := RecvFrame(ctx, srv.rctl)
+			frame, err := RecvFrame(ctx, srv.rctl.sck)
 			switch {
 			case err == nil:
 				// ok
-			case xerrors.Is(err, io.EOF):
+			case xerrors.Is(err, mangos.ErrClosed):
 				switch state := srv.getNextState(); state {
 				case fsm.Exiting:
 					// ok
@@ -298,27 +277,18 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 				return
 
 			default:
-				var nerr net.Error
-				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
-					switch state := srv.getNextState(); state {
-					case fsm.Exiting:
-						// ok
-					default:
-						srv.msg.Warnf("connection to run-ctl: %+v", err)
-					}
-					return
-				}
 				srv.msg.Warnf("could not receive cmds from run-ctl: %+v", err)
 				continue
 			}
 
-			srv.handleCmd(ctx, srv.rctl, frame)
+			srv.handleCmd(ctx, frame)
 		}
 	}
 }
 
-func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
+func (srv *Server) handleCmd(ctx context.Context, req Frame) {
 	var (
+		sck  = srv.rctl.sck
 		resp = Frame{Type: FrameOK}
 		next fsm.Status
 		err  error
@@ -332,10 +302,11 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 		resp.Type = FrameErr
 		resp.Body = []byte(xerrors.Errorf("invalid request path %q", name).Error())
 
-		err = SendFrame(ctx, w, resp)
+		err = SendFrame(ctx, sck, resp)
 		if err != nil {
 			srv.msg.Warnf("could not send ack cmd: %+v", err)
 		}
+		return
 	}
 
 	var onCmd func(ctx Context, req Frame) error
@@ -366,7 +337,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	case "/quit":
 		onCmd = srv.onQuit
 		next = fsm.Exiting
-		defer close(srv.quit)
+		defer close(srv.done)
 
 	case "/status":
 		onCmd = srv.onStatus
@@ -402,7 +373,7 @@ func (srv *Server) handleCmd(ctx context.Context, w io.Writer, req Frame) {
 	case "/status":
 		// ok. reply already sent.
 	default:
-		err = SendFrame(ctx, w, resp)
+		err = SendFrame(ctx, sck, resp)
 		if err != nil {
 			srv.msg.Warnf("could not send ack cmd: %+v", err)
 		}
@@ -544,7 +515,7 @@ func (srv *Server) onStatus(ctx Context, req Frame) error {
 		Status: state,
 	}
 
-	err := SendCmd(ctx.Ctx, srv.rctl, &cmd)
+	err := SendCmd(ctx.Ctx, srv.rctl.sck, &cmd)
 	if err != nil {
 		return xerrors.Errorf("%s: could not send /status reply: %w", srv.name, err)
 	}
@@ -556,35 +527,21 @@ func (srv *Server) hbeatLoop(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := JoinCmd{Name: srv.name}
-	err := SendCmd(ctx, srv.hbeat, &cmd)
-	if err != nil {
-		srv.msg.Errorf("%s: could not send /join to run-ctl hbeat: %+v", srv.name, err)
-		return
-	}
-
-	ack, err := RecvFrame(ctx, srv.hbeat)
-	switch ack.Type {
-	case FrameOK:
-		// OK
-	case FrameErr:
-		srv.msg.Errorf("received error /join-ack from run-ctl hbeat: %s", ack.Body)
-		return
-	default:
-		srv.msg.Errorf("received invalid /join-ack frame from run-ctl hbeat (type=%#v)", ack.Type)
-		return
-	}
-
 	for {
 		select {
-		case <-srv.quit:
+		case <-srv.hpark:
+			_ = srv.hbeat.lis.Close()
+			_ = srv.hbeat.sck.Close()
+			srv.hpark <- 1
+			return
+		case <-ctx.Done():
 			return
 		default:
-			frame, err := RecvFrame(ctx, srv.hbeat)
+			frame, err := RecvFrame(ctx, srv.hbeat.sck)
 			switch {
 			case err == nil:
 				// ok
-			case xerrors.Is(err, io.EOF):
+			case xerrors.Is(err, mangos.ErrClosed):
 				switch state := srv.getNextState(); state {
 				case fsm.Exiting:
 					// ok
@@ -594,17 +551,7 @@ func (srv *Server) hbeatLoop(ctx context.Context) {
 				return
 
 			default:
-				var nerr net.Error
-				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
-					switch state := srv.getNextState(); state {
-					case fsm.Exiting:
-						// ok
-					default:
-						srv.msg.Warnf("connection to run-ctl: %+v", err)
-					}
-					return
-				}
-				srv.msg.Warnf("could not receive cmds from run-ctl: %+v", err)
+				srv.msg.Warnf("could not recv /hbeat from run-ctl: %+v", err)
 				continue
 			}
 
@@ -626,7 +573,7 @@ func (srv *Server) handleHBeat(ctx context.Context, frame Frame) error {
 		Status: state,
 	}
 
-	err := SendCmd(ctx, srv.hbeat, &cmd)
+	err := SendCmd(ctx, srv.hbeat.sck, &cmd)
 	if err != nil {
 		return xerrors.Errorf("%s: could not send /hbeat reply: %w", srv.name, err)
 	}
@@ -634,12 +581,40 @@ func (srv *Server) handleHBeat(ctx context.Context, frame Frame) error {
 	return nil
 }
 
+func (srv *Server) close() {
+	defer func() {
+		go func() {
+			srv.msg.setLog(nil)
+			_ = srv.log.lis.Close()
+			_ = srv.log.sck.Close()
+		}()
+	}()
+
+	srv.msg.Debugf("server shutting down...")
+
+	srv.park(srv.hpark)
+	srv.park(srv.rpark)
+
+	srv.imgr.close()
+	srv.omgr.close()
+	srv.cmgr.close()
+	srv.msg.Debugf("server shutting down... [done]")
+}
+
+func (srv *Server) park(ch chan int) {
+	select {
+	case ch <- 1:
+		<-ch
+	default:
+	}
+}
+
 type msgstream struct {
-	mu   sync.Mutex
-	lvl  log.Level
-	w    io.Writer
-	conn net.Conn
-	n    string
+	mu  sync.Mutex
+	lvl log.Level
+	w   io.Writer
+	sck mangos.Socket
+	n   string
 }
 
 func newMsgStream(name string, lvl log.Level, w io.Writer) *msgstream {
@@ -685,20 +660,22 @@ func (msg *msgstream) Msg(lvl log.Level, format string, a ...interface{}) {
 	format = msg.n + lvl.MsgString() + " " + format + eol
 	str := []byte(fmt.Sprintf(format, a...))
 
-	if msg.conn != nil {
-		go SendMsg(context.Background(), msg.conn, MsgFrame{
-			Name:  strings.TrimSpace(msg.n),
-			Level: lvl,
-			Msg:   string(str),
-		})
+	if msg.sck != nil {
+		go func(sck mangos.Socket) {
+			_ = SendMsg(context.Background(), sck, MsgFrame{
+				Name:  strings.TrimSpace(msg.n),
+				Level: lvl,
+				Msg:   string(str),
+			})
+		}(msg.sck)
 	}
 
 	_, _ = msg.w.Write(str)
 }
 
-func (msg *msgstream) setLog(conn net.Conn) {
+func (msg *msgstream) setLog(sck mangos.Socket) {
 	msg.mu.Lock()
-	msg.conn = conn
+	msg.sck = sck
 	msg.mu.Unlock()
 }
 

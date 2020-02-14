@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-daq/tdaq"
+	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/internal/tcputil"
 	"github.com/go-daq/tdaq/job"
 	"github.com/go-daq/tdaq/log"
@@ -45,7 +46,7 @@ func TestSequence(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
@@ -195,7 +196,7 @@ func TestAdder(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
@@ -341,7 +342,7 @@ func TestScaler(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
@@ -518,7 +519,7 @@ func TestSplitter(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
@@ -738,7 +739,7 @@ func TestTOF(t *testing.T) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
@@ -852,7 +853,7 @@ func BenchmarkTOF(b *testing.B) {
 	}
 	webAddr := ":" + port
 
-	stdout := new(bytes.Buffer)
+	stdout := iomux.NewWriter(new(bytes.Buffer))
 	app := job.New("tcp", stdout)
 	defer func() {
 		if err != nil {
