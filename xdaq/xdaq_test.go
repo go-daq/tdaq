@@ -716,3 +716,263 @@ func TestSplitter(t *testing.T) {
 		t.Fatalf("error shutting down tdaq app: %+v", err)
 	}
 }
+
+func TestTOF(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rclvl   = log.LvlDebug
+		proclvl = log.LvlDebug
+	)
+
+	port, err := tcputil.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tcputil.GetTCPPort()
+	if err != nil {
+		t.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	stdout := new(bytes.Buffer)
+	app := job.New("tcp", stdout)
+	defer func() {
+		if err != nil {
+			t.Logf("stdout:\n%v\n", stdout.String())
+		}
+	}()
+
+	app.Cfg.RunCtl = rcAddr
+	app.Cfg.Web = webAddr
+	app.Cfg.Level = rclvl
+
+	type pstate struct {
+		name   string
+		n      *int64
+		mean   *float64
+		stddev *float64
+	}
+
+	var (
+		proc1 = pstate{name: "proc-1"}
+		proc2 = pstate{name: "proc-2"}
+	)
+
+	const (
+		runTime = 100 * time.Millisecond
+	)
+
+	app.Add(
+		func() job.Proc {
+			dev := new(xdaq.I64GenUTC)
+			dev.Freq = runTime / 50
+			proc1.n = &dev.N
+			return job.Proc{
+				Dev:   dev,
+				Name:  proc1.name,
+				Level: proclvl,
+				Outputs: job.OutputHandlers{
+					"/i64": dev.Output,
+				},
+				Handlers: job.RunHandlers{dev.Loop},
+			}
+		}(),
+		func() job.Proc {
+			dev := new(xdaq.I64TOF)
+			proc2.n = &dev.N
+			proc2.mean = &dev.Mean
+			proc2.stddev = &dev.StdDev
+			return job.Proc{
+				Dev:   dev,
+				Name:  proc2.name,
+				Level: proclvl,
+				Inputs: job.InputHandlers{
+					"/i64": dev.Input,
+				},
+			}
+
+		}(),
+	)
+
+	err = app.Start()
+	if err != nil {
+		t.Fatalf("could not start tdaq app: %+v", err)
+	}
+
+	runF := func(f func(cmd tdaq.CmdType), cmds ...tdaq.CmdType) {
+		for _, cmd := range cmds {
+			f(cmd)
+		}
+	}
+
+	runF(
+		func(cmd tdaq.CmdType) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = app.Do(ctx, cmd)
+			if err != nil {
+				t.Fatalf("could not send command %v: %+v", cmd, err)
+			}
+			if cmd == tdaq.CmdStart {
+				time.Sleep(runTime)
+			}
+		},
+		tdaq.CmdConfig, tdaq.CmdInit,
+		tdaq.CmdStart, tdaq.CmdStop,
+		tdaq.CmdQuit,
+	)
+
+	err = app.Wait()
+	if err != nil {
+		t.Fatalf("error shutting down tdaq app: %+v", err)
+	}
+}
+
+func BenchmarkTOF(b *testing.B) {
+
+	const (
+		rclvl   = log.LvlError
+		proclvl = log.LvlError
+	)
+
+	port, err := tcputil.GetTCPPort()
+	if err != nil {
+		b.Fatalf("could not find a tcp port for run-ctl: %+v", err)
+	}
+
+	rcAddr := ":" + port
+
+	port, err = tcputil.GetTCPPort()
+	if err != nil {
+		b.Fatalf("could not find a tcp port for run-ctl web server: %+v", err)
+	}
+	webAddr := ":" + port
+
+	stdout := new(bytes.Buffer)
+	app := job.New("tcp", stdout)
+	defer func() {
+		if err != nil {
+			b.Logf("stdout:\n%v\n", stdout.String())
+		}
+	}()
+
+	app.Cfg.RunCtl = rcAddr
+	app.Cfg.Web = webAddr
+	app.Cfg.Level = rclvl
+
+	type pstate struct {
+		name   string
+		n      *int64
+		mean   *float64
+		stddev *float64
+	}
+
+	var (
+		proc1 = pstate{name: "proc-1"}
+		proc2 = pstate{name: "proc-2"}
+	)
+
+	app.Add(
+		func() job.Proc {
+			dev := new(xdaq.I64GenUTC)
+			dev.Freq = 1 * time.Microsecond
+			proc1.n = &dev.N
+			return job.Proc{
+				Dev:   dev,
+				Name:  proc1.name,
+				Level: proclvl,
+				Outputs: job.OutputHandlers{
+					"/i64": dev.Output,
+				},
+				Handlers: job.RunHandlers{dev.Loop},
+			}
+		}(),
+		func() job.Proc {
+			dev := new(xdaq.I64TOF)
+			proc2.n = &dev.N
+			proc2.mean = &dev.Mean
+			proc2.stddev = &dev.StdDev
+			return job.Proc{
+				Dev:   dev,
+				Name:  proc2.name,
+				Level: proclvl,
+				Inputs: job.InputHandlers{
+					"/i64": dev.Input,
+				},
+			}
+
+		}(),
+	)
+
+	err = app.Start()
+	if err != nil {
+		b.Fatalf("could not start tdaq app: %+v", err)
+	}
+
+	runF := func(f func(cmd tdaq.CmdType), cmds ...tdaq.CmdType) {
+		for _, cmd := range cmds {
+			f(cmd)
+		}
+	}
+
+	runF(
+		func(cmd tdaq.CmdType) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = app.Do(ctx, cmd)
+			if err != nil {
+				b.Fatalf("could not send command %v: %+v", cmd, err)
+			}
+		},
+		tdaq.CmdConfig, tdaq.CmdInit,
+	)
+
+	const (
+		runTime = 5 * time.Second
+	)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		runF(
+			func(cmd tdaq.CmdType) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				err = app.Do(ctx, cmd)
+				if err != nil {
+					b.Fatalf("could not send command %v: %+v", cmd, err)
+				}
+				if cmd == tdaq.CmdStart {
+					time.Sleep(runTime)
+				}
+				if cmd == tdaq.CmdStop {
+					b.ReportMetric(float64(*proc2.n)/float64(b.N)/float64(runTime/time.Second), "bench-01-tokens/op/s")
+					b.ReportMetric(*proc2.mean, "bench-02-tof-ns")
+					b.ReportMetric(*proc2.stddev, "bench-03-stddev-ns")
+				}
+			},
+			tdaq.CmdStart, tdaq.CmdStop,
+		)
+	}
+
+	runF(
+		func(cmd tdaq.CmdType) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = app.Do(ctx, cmd)
+			if err != nil {
+				b.Fatalf("could not send command %v: %+v", cmd, err)
+			}
+		},
+		tdaq.CmdQuit,
+	)
+
+	err = app.Wait()
+	if err != nil {
+		b.Fatalf("error shutting down tdaq app: %+v", err)
+	}
+}
