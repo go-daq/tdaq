@@ -7,8 +7,6 @@ package xdaq_test // import "github.com/go-daq/tdaq/xdaq"
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
-	"sync"
 	"testing"
 	"time"
 
@@ -867,7 +865,7 @@ func TestTOF(t *testing.T) {
 
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64GenUTC)
+			dev := new(testI64GenUTC)
 			dev.Freq = runTime / 50
 			proc1.n = &dev.N
 			return job.Proc{
@@ -881,7 +879,7 @@ func TestTOF(t *testing.T) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64TOF)
+			dev := new(testI64TOF)
 			proc2.n = &dev.N
 			proc2.mean = &dev.Mean
 			proc2.stddev = &dev.StdDev
@@ -977,7 +975,7 @@ func BenchmarkTOF(b *testing.B) {
 
 	app.Add(
 		func() job.Proc {
-			dev := new(xdaq.I64GenUTC)
+			dev := new(testI64GenUTC)
 			dev.Freq = 1 * time.Microsecond
 			proc1.n = &dev.N
 			return job.Proc{
@@ -991,7 +989,7 @@ func BenchmarkTOF(b *testing.B) {
 			}
 		}(),
 		func() job.Proc {
-			dev := new(xdaq.I64TOF)
+			dev := new(testI64TOF)
 			proc2.n = &dev.N
 			proc2.mean = &dev.Mean
 			proc2.stddev = &dev.StdDev
@@ -1074,147 +1072,4 @@ func BenchmarkTOF(b *testing.B) {
 	if err != nil {
 		b.Fatalf("error shutting down tdaq app: %+v", err)
 	}
-}
-
-type testI64Gen struct {
-	N int64 // count
-	V int64 // last value
-
-	mu sync.RWMutex
-	ch chan int64
-}
-
-func (dev *testI64Gen) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /config command...")
-	return nil
-}
-
-func (dev *testI64Gen) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /init command...")
-	dev.mu.Lock()
-	dev.N = 0
-	dev.V = 0
-	dev.ch = make(chan int64)
-	dev.mu.Unlock()
-	return nil
-}
-
-func (dev *testI64Gen) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /init command...")
-	dev.mu.Lock()
-	dev.N = 0
-	dev.V = 0
-	dev.ch = make(chan int64)
-	dev.mu.Unlock()
-	return nil
-}
-
-func (dev *testI64Gen) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /start command...")
-	return nil
-}
-
-func (dev *testI64Gen) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	dev.mu.RLock()
-	n := dev.N
-	v := dev.V
-	dev.mu.RUnlock()
-	ctx.Msg.Infof("received /stop command... -> n=%d, v=%v", n, v)
-	return nil
-}
-
-func (dev *testI64Gen) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /quit command...")
-	return nil
-}
-
-func (dev *testI64Gen) Output(ctx tdaq.Context, dst *tdaq.Frame) error {
-	select {
-	case <-ctx.Ctx.Done():
-		dst.Body = nil
-		return nil
-	case data := <-dev.ch:
-		dst.Body = make([]byte, 8)
-		binary.LittleEndian.PutUint64(dst.Body, uint64(data))
-	}
-	return nil
-}
-
-func (dev *testI64Gen) loop(n int) {
-	for i := 0; i < n; i++ {
-		dev.mu.Lock()
-		dev.ch <- int64(i)
-		dev.N++
-		dev.V = int64(i)
-		dev.mu.Unlock()
-	}
-}
-
-type testI64Dumper struct {
-	N int64 // counter of values seen since /init
-	V int64 // last value seen
-
-	want  int64
-	drain chan int
-	timer *time.Timer
-}
-
-func (dev *testI64Dumper) OnConfig(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /config command...")
-	return nil
-}
-
-func (dev *testI64Dumper) OnInit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /init command...")
-	dev.N = +0
-	dev.V = -1
-	return nil
-}
-
-func (dev *testI64Dumper) OnReset(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /reset command...")
-	dev.N = +0
-	return nil
-}
-
-func (dev *testI64Dumper) OnStart(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /start command...")
-	return nil
-}
-
-func (dev *testI64Dumper) OnStop(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	n := dev.N
-	v := dev.V
-	ctx.Msg.Infof("received /stop command... v=%d -> n=%d", v, n)
-	return nil
-}
-
-func (dev *testI64Dumper) OnQuit(ctx tdaq.Context, resp *tdaq.Frame, req tdaq.Frame) error {
-	ctx.Msg.Debugf("received /quit command...")
-	dev.timer.Stop()
-	return nil
-}
-
-func (dev *testI64Dumper) Input(ctx tdaq.Context, src tdaq.Frame) error {
-	dev.V = int64(binary.LittleEndian.Uint64(src.Body))
-	dev.N++
-	select {
-	case <-dev.timer.C:
-		dev.drain <- 0
-		return nil
-	default:
-	}
-	if dev.N == dev.want {
-		ctx.Msg.Debugf("want=%v, n=%v", dev.N, dev.want)
-		select {
-		case <-dev.timer.C:
-			ctx.Msg.Debugf("want=%v, n=%v (ctx=canceled)", dev.N, dev.want)
-			dev.drain <- 0
-			return nil
-		case dev.drain <- 1:
-			ctx.Msg.Debugf("want=%v, n=%v (drained)", dev.N, dev.want)
-		}
-	}
-	ctx.Msg.Debugf("received: v=%d -> n=%d (want=%d)", dev.V, dev.N, dev.want)
-	return nil
 }
