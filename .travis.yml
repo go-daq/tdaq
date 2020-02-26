@@ -2,7 +2,7 @@ language: go
 go_import_path: github.com/go-daq/tdaq
 
 go:
- - 1.13.x
+ - 1.14.x
 
 os:
  - linux
@@ -23,7 +23,7 @@ git:
 matrix:
  fast_finish: true
  include:
-   - go: 1.13.x
+   - go: 1.14.x
      env:
        - TAGS=""
        - COVERAGE="-coverpkg=github.com/go-daq/tdaq/..."
