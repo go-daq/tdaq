@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/mattn/go-runewidth v0.0.8 // indirect
-	github.com/peterh/liner v1.1.0
+	github.com/peterh/liner v1.2.0
 	go.nanomsg.org/mangos/v3 v3.0.0
 	golang.org/x/exp v0.0.0-20200119233911-0405dc783f0a
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa
