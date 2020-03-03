@@ -6,6 +6,8 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"html/template"
 	"net"
 	"net/http"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"golang.org/x/net/websocket"
-	"golang.org/x/xerrors"
 )
 
 type websrv interface {
@@ -32,7 +33,7 @@ func (rc *RunControl) serveWeb(ctx context.Context) {
 
 	err := rc.web.ListenAndServe()
 	if err != nil {
-		if xerrors.Is(err, http.ErrServerClosed) {
+		if errors.Is(err, http.ErrServerClosed) {
 			select {
 			case <-rc.quit:
 				// ok, we are shutting down.
@@ -88,7 +89,7 @@ func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
 		err = rc.doStatus(ctx)
 	default:
 		rc.msg.Errorf("received invalid cmd %q over web-gui", cmd)
-		err = xerrors.Errorf("received invalid cmd %q", cmd)
+		err = fmt.Errorf("received invalid cmd %q", cmd)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -147,7 +148,7 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not send /status report to websocket client: %+v", err)
 				var nerr net.Error
-				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+				if errors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
 					return
 				}
 			}
@@ -177,7 +178,7 @@ func (rc *RunControl) webMsg(ws *websocket.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not send /msg report to websocket client: %+v", err)
 				var nerr net.Error
-				if xerrors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+				if errors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
 					return
 				}
 			}

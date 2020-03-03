@@ -7,6 +7,7 @@ package tdaq_test // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -22,7 +23,6 @@ import (
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/xdaq"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 func TestRunControlAPI(t *testing.T) {
@@ -241,7 +241,7 @@ loop:
 			if err == nil {
 				t.Fatalf("expected an error!")
 			}
-			if !xerrors.Is(err, context.Canceled) {
+			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("expected a canceled-context error, got: %+v", err)
 			}
 			break loop
@@ -252,7 +252,7 @@ loop:
 	if err == nil {
 		t.Fatalf("expected an error!")
 	}
-	want := xerrors.Errorf(`could not join run-ctl: received error /join-ack from run-ctl: duplicate tdaq process with name "proc-1"`)
+	want := fmt.Errorf(`could not join run-ctl: received error /join-ack from run-ctl: duplicate tdaq process with name "proc-1"`)
 	if got, want := err.Error(), want.Error(); !strings.HasPrefix(got, want) {
 		t.Fatalf("invalid error.\ngot= %v\nwant=%v\n", got, want)
 	}
@@ -375,7 +375,7 @@ loop:
 		err  error
 	}{
 		{"config", tdaq.CmdConfig, nil},
-		{"init", tdaq.CmdInit, xerrors.Errorf(`could not create DAG of data dependencies: could not build graph for analysis: node "proc-1" already declared "/i64" as its output (dup-node="proc-2")`)},
+		{"init", tdaq.CmdInit, fmt.Errorf(`could not create DAG of data dependencies: could not build graph for analysis: node "proc-1" already declared "/i64" as its output (dup-node="proc-2")`)},
 		{"quit", tdaq.CmdQuit, nil},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -405,7 +405,7 @@ loop:
 	}
 
 	err = <-errc
-	if err != nil && !xerrors.Is(err, context.Canceled) {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 
@@ -510,7 +510,7 @@ loop:
 		cmd  tdaq.CmdType
 		err  error
 	}{
-		{"config", tdaq.CmdConfig, xerrors.Errorf(`could not find a provider for input "/i64" for "proc-1"`)},
+		{"config", tdaq.CmdConfig, fmt.Errorf(`could not find a provider for input "/i64" for "proc-1"`)},
 		{"quit", tdaq.CmdQuit, nil},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -540,7 +540,7 @@ loop:
 	}
 
 	err = <-errc
-	if err != nil && !xerrors.Is(err, context.Canceled) {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 

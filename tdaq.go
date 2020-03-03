@@ -8,9 +8,9 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/go-daq/tdaq/log"
-	"golang.org/x/xerrors"
 )
 
 type Context struct {
@@ -85,7 +85,7 @@ func (ft FrameType) String() string {
 	case FrameErr:
 		return "err-frame"
 	default:
-		panic(xerrors.Errorf("invalid frame-type %d", byte(ft)))
+		panic(fmt.Errorf("invalid frame-type %d", byte(ft)))
 	}
 }
 
@@ -123,7 +123,7 @@ func RecvFrame(ctx context.Context, sck Recver) (frame Frame, err error) {
 
 	msg, err := sck.Recv()
 	if err != nil {
-		return frame, xerrors.Errorf("could not receive TDAQ frame: %w", err)
+		return frame, fmt.Errorf("could not receive TDAQ frame: %w", err)
 	}
 	frame.Type = FrameType(msg[0])
 

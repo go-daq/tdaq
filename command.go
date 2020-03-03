@@ -9,9 +9,9 @@ package tdaq // import "github.com/go-daq/tdaq"
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/go-daq/tdaq/fsm"
-	"golang.org/x/xerrors"
 )
 
 // CmdType describes the type of a command frame.
@@ -50,7 +50,7 @@ func (cmd CmdType) String() string {
 	case CmdStatus:
 		return "/status"
 	default:
-		panic(xerrors.Errorf("invalid cmd-type %d", byte(cmd)))
+		panic(fmt.Errorf("invalid cmd-type %d", byte(cmd)))
 	}
 }
 
@@ -84,7 +84,7 @@ type Cmd struct {
 
 func cmdFrom(frame Frame) (Cmd, error) {
 	if frame.Type != FrameCmd {
-		return Cmd{}, xerrors.Errorf("invalid frame type %v", frame.Type)
+		return Cmd{}, fmt.Errorf("invalid frame type %v", frame.Type)
 	}
 	cmd := Cmd{
 		Type: CmdType(frame.Body[0]),
@@ -96,7 +96,7 @@ func cmdFrom(frame Frame) (Cmd, error) {
 func SendCmd(ctx context.Context, sck Sender, cmd Cmder) error {
 	raw, err := cmd.MarshalTDAQ()
 	if err != nil {
-		return xerrors.Errorf("could not marshal cmd: %w", err)
+		return fmt.Errorf("could not marshal cmd: %w", err)
 	}
 
 	ctype := cmd.CmdType()
@@ -126,11 +126,11 @@ func newJoinCmd(frame Frame) (JoinCmd, error) {
 
 	raw, err := cmdFrom(frame)
 	if err != nil {
-		return cmd, xerrors.Errorf("not a /join cmd: %w", err)
+		return cmd, fmt.Errorf("not a /join cmd: %w", err)
 	}
 
 	if raw.Type != CmdJoin {
-		return cmd, xerrors.Errorf("not a /join cmd")
+		return cmd, fmt.Errorf("not a /join cmd")
 	}
 
 	err = cmd.UnmarshalTDAQ(raw.Body)
@@ -205,11 +205,11 @@ func newConfigCmd(frame Frame) (ConfigCmd, error) {
 
 	raw, err := cmdFrom(frame)
 	if err != nil {
-		return cmd, xerrors.Errorf("not a /config cmd: %w", err)
+		return cmd, fmt.Errorf("not a /config cmd: %w", err)
 	}
 
 	if raw.Type != CmdConfig {
-		return cmd, xerrors.Errorf("not a /config cmd")
+		return cmd, fmt.Errorf("not a /config cmd")
 	}
 
 	err = cmd.UnmarshalTDAQ(raw.Body)
@@ -277,11 +277,11 @@ func newStatusCmd(frame Frame) (StatusCmd, error) {
 
 	raw, err := cmdFrom(frame)
 	if err != nil {
-		return cmd, xerrors.Errorf("not a /status cmd: %w", err)
+		return cmd, fmt.Errorf("not a /status cmd: %w", err)
 	}
 
 	if raw.Type != CmdStatus {
-		return cmd, xerrors.Errorf("not a /status cmd")
+		return cmd, fmt.Errorf("not a /status cmd")
 	}
 
 	err = cmd.UnmarshalTDAQ(raw.Body)

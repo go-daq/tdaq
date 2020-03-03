@@ -6,6 +6,7 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/log"
 	"go.nanomsg.org/mangos/v3"
-	"golang.org/x/xerrors"
 )
 
 // client is a proxy to a tdaq server from the RunControl standpoint.
@@ -84,7 +84,7 @@ func (cli *client) logLoop(ctx context.Context, flog *iomux.Writer, msgs chan<- 
 	for {
 		frame, err := RecvFrame(ctx, cli.log)
 		if err != nil {
-			closed := xerrors.Is(err, mangos.ErrClosed)
+			closed := errors.Is(err, mangos.ErrClosed)
 			select {
 			case <-cli.quit:
 				if closed {

@@ -7,6 +7,7 @@ package flags // import "github.com/go-daq/tdaq/flags"
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/go-daq/tdaq/config"
 	"github.com/go-daq/tdaq/log"
-	"golang.org/x/xerrors"
 )
 
 func New() config.Process {
@@ -93,7 +93,7 @@ func parseLevel(lvl string) (log.Level, error) {
 	default:
 		v, err := strconv.Atoi(lvl)
 		if err != nil {
-			return 0, xerrors.Errorf("unknown level value %q: %+v", lvl, err)
+			return 0, fmt.Errorf("unknown level value %q: %+v", lvl, err)
 		}
 		return log.Level(v), nil
 	}

@@ -6,10 +6,9 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
-
-	"golang.org/x/xerrors"
 )
 
 // Encoder encodes values to the underlying io.Writer, according to the TDAQ wire protocol.
@@ -70,7 +69,7 @@ func (enc *Encoder) Encode(v interface{}) error {
 	case string:
 		enc.WriteStr(v)
 	default:
-		return xerrors.Errorf("value type=%T not supported", v)
+		return fmt.Errorf("value type=%T not supported", v)
 	}
 
 	return enc.err

@@ -10,8 +10,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	xerrors "golang.org/x/xerrors"
 )
 
 // Level regulates the verbosity level of a component.
@@ -36,7 +34,7 @@ func (lvl Level) MsgString() string {
 	case LvlError:
 		return "ERR "
 	}
-	panic(xerrors.Errorf("log: invalid log.Level value [%d]", int(lvl)))
+	panic(fmt.Errorf("log: invalid log.Level value [%d]", int(lvl)))
 }
 
 // String prints the human-readable representation of a Level value.
@@ -51,7 +49,7 @@ func (lvl Level) String() string {
 	case LvlError:
 		return "ERROR"
 	}
-	panic(xerrors.Errorf("log: invalid log.Level value [%d]", int(lvl)))
+	panic(fmt.Errorf("log: invalid log.Level value [%d]", int(lvl)))
 }
 
 // MsgStream provides access to verbosity-defined formated messages, a la fmt.Printf.

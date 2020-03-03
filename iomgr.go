@@ -6,6 +6,8 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"sync"
@@ -15,7 +17,6 @@ import (
 	"go.nanomsg.org/mangos/v3/protocol/pub"
 	"go.nanomsg.org/mangos/v3/protocol/xsub"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 type RunHandler func(ctx Context) error
@@ -57,7 +58,7 @@ func (mgr *imgr) Handle(name string, h InputHandler) {
 
 	_, dup := mgr.ep[name]
 	if dup {
-		panic(xerrors.Errorf("duplicate input handler for %q", name))
+		panic(fmt.Errorf("duplicate input handler for %q", name))
 	}
 
 	mgr.ep[name] = h
@@ -83,7 +84,7 @@ func (mgr *imgr) onConfig(ctx Context, src Frame) error {
 
 	cmd, err := newConfigCmd(src)
 	if err != nil {
-		return xerrors.Errorf("could not retrieve /config cmd: %w", err)
+		return fmt.Errorf("could not retrieve /config cmd: %w", err)
 	}
 	mgr.cfg = cmd
 
@@ -100,13 +101,13 @@ func (mgr *imgr) onConfig(ctx Context, src Frame) error {
 func (mgr *imgr) dial(ep EndPoint) error {
 	sck, err := xsub.NewSocket()
 	if err != nil {
-		return xerrors.Errorf("could not create XSUB socket for ep=%q: %w",
+		return fmt.Errorf("could not create XSUB socket for ep=%q: %w",
 			ep.Name, err,
 		)
 	}
 	err = sck.Dial(ep.Addr)
 	if err != nil {
-		return xerrors.Errorf("could not dial %q end-point (ep=%q): %w", ep.Addr, ep.Name, err)
+		return fmt.Errorf("could not dial %q end-point (ep=%q): %w", ep.Addr, ep.Name, err)
 	}
 	mgr.ps[ep.Name] = sck
 
@@ -176,7 +177,7 @@ func (mgr *imgr) onStop(ctx Context) error {
 		return nil
 
 	case <-ctx.Ctx.Done():
-		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
+		return fmt.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
 }
 
@@ -245,7 +246,7 @@ func (mgr *omgr) Handle(name string, h OutputHandler) {
 
 	_, dup := mgr.ep[name]
 	if dup {
-		panic(xerrors.Errorf("duplicate output handler for %q", name))
+		panic(fmt.Errorf("duplicate output handler for %q", name))
 	}
 
 	mgr.ep[name] = h
@@ -269,7 +270,7 @@ func (mgr *omgr) makeListeners(srv *Server) error {
 			}
 		}())
 		if err != nil {
-			return xerrors.Errorf("could not setup output port %q: %w", ep, err)
+			return fmt.Errorf("could not setup output port %q: %w", ep, err)
 		}
 		o := &oport{name: ep, addr: lis.Address(), srv: srv, l: lis, pub: sck}
 		mgr.ps[ep] = o
@@ -286,7 +287,7 @@ func (mgr *omgr) endpoints() []EndPoint {
 	for k := range mgr.ep {
 		l, ok := mgr.ps[k]
 		if !ok {
-			panic(xerrors.Errorf("could not find a listener for end-point %q", k))
+			panic(fmt.Errorf("could not find a listener for end-point %q", k))
 		}
 
 		eps = append(eps, EndPoint{
@@ -314,7 +315,7 @@ func (mgr *omgr) onReset(ctx Context) error {
 	}
 
 	if err != nil {
-		return xerrors.Errorf("could not /reset outgoing end-points: %w", err)
+		return fmt.Errorf("could not /reset outgoing end-points: %w", err)
 	}
 
 	return mgr.makeListeners(mgr.srv)
@@ -360,7 +361,7 @@ func (mgr *omgr) onStop(ctx Context) error {
 	case <-mgr.done:
 		return nil
 	case <-ctx.Ctx.Done():
-		return xerrors.Errorf("on-stop failed: %w", ctx.Ctx.Err())
+		return fmt.Errorf("on-stop failed: %w", ctx.Ctx.Err())
 	}
 }
 
@@ -382,7 +383,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
 				ctx.Msg.Errorf("could not process data frame for %q: %+v", ep, err)
 				continue
 			}
-			if err := ctx.Ctx.Err(); err != nil && xerrors.Is(err, context.Canceled) {
+			if err := ctx.Ctx.Err(); err != nil && errors.Is(err, context.Canceled) {
 				continue
 			}
 
@@ -396,7 +397,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
 					ctx.Msg.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
 				}
 				if err, ok := err.(net.Error); ok && !err.Temporary() {
-					return xerrors.Errorf("could not send data frame for %q: %w", ep, err)
+					return fmt.Errorf("could not send data frame for %q: %w", ep, err)
 				}
 				continue
 			}
@@ -428,7 +429,7 @@ func (mgr *cmdmgr) Handle(name string, handler CmdHandler) {
 	defer mgr.mu.Unlock()
 
 	if name == "/status" {
-		panic(xerrors.Errorf("handle %q is not allowed", name))
+		panic(fmt.Errorf("handle %q is not allowed", name))
 	}
 
 	if len(mgr.set) != 0 {
@@ -438,13 +439,13 @@ func (mgr *cmdmgr) Handle(name string, handler CmdHandler) {
 				allowed = append(allowed, k)
 			}
 			sort.Strings(allowed)
-			panic(xerrors.Errorf("handle %q is not in the allowed set of handles %v", name, allowed))
+			panic(fmt.Errorf("handle %q is not in the allowed set of handles %v", name, allowed))
 		}
 	}
 
 	_, dup := mgr.ep[name]
 	if dup {
-		panic(xerrors.Errorf("duplicate cmd handler for %q", name))
+		panic(fmt.Errorf("duplicate cmd handler for %q", name))
 	}
 	mgr.ep[name] = handler
 }

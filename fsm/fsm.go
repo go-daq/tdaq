@@ -5,7 +5,7 @@
 package fsm // import "github.com/go-daq/tdaq/fsm"
 
 import (
-	"golang.org/x/xerrors"
+	"fmt"
 )
 
 // Status describes the current status of a tdaq process.
@@ -38,6 +38,6 @@ func (st Status) String() string {
 	case Error:
 		return "error"
 	default:
-		panic(xerrors.Errorf("invalid status value %d", uint8(st)))
+		panic(fmt.Errorf("invalid status value %d", uint8(st)))
 	}
 }

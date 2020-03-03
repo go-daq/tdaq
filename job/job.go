@@ -8,6 +8,8 @@ package job // import "github.com/go-daq/tdaq/job"
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -18,7 +20,6 @@ import (
 	"github.com/go-daq/tdaq/internal/iomux"
 	"github.com/go-daq/tdaq/log"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 // Proc describes a tdaq process.
@@ -106,7 +107,7 @@ func New(network string, stdout io.Writer) *App {
 func (app *App) Add(ps ...Proc) {
 	for _, p := range ps {
 		if _, dup := app.names[p.Name]; dup {
-			panic(xerrors.Errorf("duplicate process w/ name %q", p.Name))
+			panic(fmt.Errorf("duplicate process w/ name %q", p.Name))
 		}
 		if p.Cmds == nil {
 			p.Cmds = make(CmdHandlers)
@@ -126,7 +127,7 @@ func (app *App) Start() error {
 	if app.Cfg.LogFile == "" {
 		f, err := ioutil.TempFile("", "tdaq-")
 		if err != nil {
-			return xerrors.Errorf("could not create log-file: %w", err)
+			return fmt.Errorf("could not create log-file: %w", err)
 		}
 		f.Close()
 		app.Cfg.LogFile = f.Name()
@@ -135,7 +136,7 @@ func (app *App) Start() error {
 
 	rc, err := tdaq.NewRunControl(app.Cfg, app.stdout)
 	if err != nil {
-		return xerrors.Errorf("could not create run-ctl: %w", err)
+		return fmt.Errorf("could not create run-ctl: %w", err)
 	}
 	app.rctl = rc
 
@@ -238,7 +239,7 @@ loop:
 	for {
 		select {
 		case <-timeout.C:
-			return xerrors.Errorf("devices did not connect before timeout (%v)", app.Timeout)
+			return fmt.Errorf("devices did not connect before timeout (%v)", app.Timeout)
 		default:
 			n := app.rctl.NumClients()
 			if n == len(app.procs) {
@@ -260,11 +261,11 @@ func (app *App) Wait() error {
 	}
 
 	if err1 != nil {
-		return xerrors.Errorf("error while running devices: %w", err1)
+		return fmt.Errorf("error while running devices: %w", err1)
 	}
 
-	if err2 != nil && !xerrors.Is(err2, context.Canceled) {
-		return xerrors.Errorf("error shutting down run-ctl: %w", err2)
+	if err2 != nil && !errors.Is(err2, context.Canceled) {
+		return fmt.Errorf("error shutting down run-ctl: %w", err2)
 	}
 
 	return nil

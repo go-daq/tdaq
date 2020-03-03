@@ -6,10 +6,10 @@
 package dflow // import "github.com/go-daq/tdaq/internal/dflow"
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
-	"golang.org/x/xerrors"
 	"gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/simple"
 	"gonum.org/v1/gonum/graph/topo"
@@ -53,14 +53,14 @@ func (g *Graph) Has(name string) bool {
 
 func (g *Graph) Add(name string, in []string, out []string) error {
 	if _, dup := g.nodes[name]; dup {
-		return xerrors.Errorf("duplicate node %q", name)
+		return fmt.Errorf("duplicate node %q", name)
 	}
 
 	if dups := dups(in); len(dups) > 0 {
-		return xerrors.Errorf("duplicate inputs for node %q: %v", name, dups)
+		return fmt.Errorf("duplicate inputs for node %q: %v", name, dups)
 	}
 	if dups := dups(out); len(dups) > 0 {
-		return xerrors.Errorf("duplicate outputs for node %q: %v", name, dups)
+		return fmt.Errorf("duplicate outputs for node %q: %v", name, dups)
 	}
 
 	n := &node{
@@ -109,7 +109,7 @@ func (g *Graph) build() (*simple.DirectedGraph, error) {
 		for k := range node.out {
 			n, dup := out[k]
 			if dup {
-				return nil, xerrors.Errorf("node %q already declared %q as its output (dup-node=%q)", n, k, name)
+				return nil, fmt.Errorf("node %q already declared %q as its output (dup-node=%q)", n, k, name)
 			}
 			out[k] = name
 		}
@@ -120,7 +120,7 @@ func (g *Graph) build() (*simple.DirectedGraph, error) {
 		for k := range node.in {
 			_, ok := out[k]
 			if !ok {
-				return nil, xerrors.Errorf("node %q declared %q as input but NO KNOWN produced for it", name, k)
+				return nil, fmt.Errorf("node %q declared %q as input but NO KNOWN produced for it", name, k)
 			}
 		}
 	}
@@ -150,7 +150,7 @@ func (g *Graph) build() (*simple.DirectedGraph, error) {
 func (g *Graph) Analyze() error {
 	dg, err := g.build()
 	if err != nil {
-		return xerrors.Errorf("could not build graph for analysis: %w", err)
+		return fmt.Errorf("could not build graph for analysis: %w", err)
 	}
 
 	return g.check(dg)
@@ -166,7 +166,7 @@ func (g *Graph) check(dg *simple.DirectedGraph) error {
 		for _, n := range c {
 			cycle = append(cycle, n.(*node).name)
 		}
-		return xerrors.Errorf("cycle detected: %v", strings.Join(cycle, " -> "))
+		return fmt.Errorf("cycle detected: %v", strings.Join(cycle, " -> "))
 	}
 	return nil
 }

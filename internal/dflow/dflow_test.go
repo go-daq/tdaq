@@ -5,10 +5,9 @@
 package dflow // import "github.com/go-daq/tdaq/internal/dflow"
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
-
-	"golang.org/x/xerrors"
 )
 
 func TestGraph(t *testing.T) {
@@ -146,7 +145,7 @@ func TestGraphWithNonLocalDuplicateOutput(t *testing.T) {
 		{
 			name: "n2",
 			out:  []string{"A", "C"},
-			//err:  xerrors.Errorf(`duplicate output edge "C" (node "n1")`),
+			//err:  fmt.Errorf(`duplicate output edge "C" (node "n1")`),
 		},
 		{
 			name: "n3",
@@ -194,7 +193,7 @@ func TestGraphWithLocalDuplicateOutput(t *testing.T) {
 			name: "n1",
 			in:   []string{"A"},
 			out:  []string{"C", "B", "C"},
-			err:  xerrors.Errorf(`duplicate outputs for node "n1": [C]`),
+			err:  fmt.Errorf(`duplicate outputs for node "n1": [C]`),
 		},
 	} {
 		err := g.Add(tt.name, tt.in, tt.out)
@@ -238,7 +237,7 @@ func TestGraphWithLocalDuplicateInput(t *testing.T) {
 			name: "n1",
 			in:   []string{"A", "B", "A"},
 			out:  []string{"C"},
-			err:  xerrors.Errorf(`duplicate inputs for node "n1": [A]`),
+			err:  fmt.Errorf(`duplicate inputs for node "n1": [A]`),
 		},
 	} {
 		err := g.Add(tt.name, tt.in, tt.out)
@@ -308,7 +307,7 @@ func TestGraphWithMissingInput(t *testing.T) {
 		t.Fatalf("expected an error")
 	}
 
-	want := xerrors.Errorf(`node "n1" declared "A" as input but NO KNOWN produced for it`)
+	want := fmt.Errorf(`node "n1" declared "A" as input but NO KNOWN produced for it`)
 	if got, want := err.Error(), want.Error(); got != want {
 		t.Fatalf("invalid error.\ngot = %v\nwant= %v\n", got, want)
 	}
@@ -428,7 +427,7 @@ func TestGraphWithInconsistentEdge(t *testing.T) {
 		t.Fatalf("expected an error")
 	}
 
-	want := xerrors.Errorf(`node "n1" already declared "A" as its output (dup-node="n4")`)
+	want := fmt.Errorf(`node "n1" already declared "A" as its output (dup-node="n4")`)
 	if got, want := err.Error(), want.Error(); got != want {
 		t.Fatalf("invalid error.\ngot = %v\nwant= %v\n", got, want)
 	}

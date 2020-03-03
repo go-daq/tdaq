@@ -6,6 +6,7 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +25,6 @@ import (
 	"go.nanomsg.org/mangos/v3/protocol/xsub"
 	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 type RunControl struct {
@@ -61,7 +61,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 
 	flog, err := os.Create(fname)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create run-ctl log file %q: %w", fname, err)
+		return nil, fmt.Errorf("could not create run-ctl log file %q: %w", fname, err)
 	}
 
 	stdout = io.MultiWriter(stdout, flog)
@@ -88,7 +88,7 @@ func NewRunControl(cfg config.RunCtl, stdout io.Writer) (*RunControl, error) {
 	rc.msg.Infof("listening on %q...", cfg.RunCtl)
 	rc.srv, err = newCtlSrv(makeAddr(cfg))
 	if err != nil {
-		return nil, xerrors.Errorf("could not start ctl-srv: %w", err)
+		return nil, fmt.Errorf("could not start ctl-srv: %w", err)
 	}
 
 	if cfg.Web != "" {
@@ -210,7 +210,7 @@ func (rc *RunControl) serveCtl(ctx context.Context) {
 func (rc *RunControl) handleCtlConn(ctx context.Context) {
 	raw, err := RecvFrame(ctx, rc.srv.join)
 	if err != nil {
-		if xerrors.Is(err, mangos.ErrClosed) {
+		if errors.Is(err, mangos.ErrClosed) {
 			select {
 			case <-rc.quit:
 				return // exiting
@@ -324,7 +324,7 @@ func (rc *RunControl) handleCtlConn(ctx context.Context) {
 
 func (rc *RunControl) checkDAG(ctx context.Context, cmd JoinCmd) error {
 	if rc.dag.Has(cmd.Name) {
-		return xerrors.Errorf("duplicate tdaq process with name %q", cmd.Name)
+		return fmt.Errorf("duplicate tdaq process with name %q", cmd.Name)
 	}
 
 	var (
@@ -342,7 +342,7 @@ func (rc *RunControl) checkDAG(ctx context.Context, cmd JoinCmd) error {
 
 	err := rc.dag.Add(cmd.Name, in, out)
 	if err != nil {
-		return xerrors.Errorf("could not add process %q to DAG: %w", cmd.Name, err)
+		return fmt.Errorf("could not add process %q to DAG: %w", cmd.Name, err)
 	}
 
 	return nil
@@ -351,7 +351,7 @@ func (rc *RunControl) checkDAG(ctx context.Context, cmd JoinCmd) error {
 func (rc *RunControl) setupLog(name, client string) (mangos.Socket, error) {
 	sck, err := xsub.NewSocket()
 	if err != nil {
-		return nil, xerrors.Errorf(
+		return nil, fmt.Errorf(
 			"could not create log-srv socket for client %s: %w",
 			name, err,
 		)
@@ -359,7 +359,7 @@ func (rc *RunControl) setupLog(name, client string) (mangos.Socket, error) {
 
 	err = sck.Dial(client)
 	if err != nil {
-		return nil, xerrors.Errorf(
+		return nil, fmt.Errorf(
 			"could not dial log-srv client %s: %w",
 			name, err,
 		)
@@ -371,7 +371,7 @@ func (rc *RunControl) setupLog(name, client string) (mangos.Socket, error) {
 func (rc *RunControl) setupHBeat(name, client string) (mangos.Socket, error) {
 	sck, err := req.NewSocket()
 	if err != nil {
-		return nil, xerrors.Errorf(
+		return nil, fmt.Errorf(
 			"could not create hbeat-srv socket for client %s: %w",
 			name, err,
 		)
@@ -379,7 +379,7 @@ func (rc *RunControl) setupHBeat(name, client string) (mangos.Socket, error) {
 
 	err = sck.Dial(client)
 	if err != nil {
-		return nil, xerrors.Errorf(
+		return nil, fmt.Errorf(
 			"could not dial hbeat-srv client %s: %w",
 			name, err,
 		)
@@ -412,10 +412,10 @@ func (rc *RunControl) broadcast(ctx context.Context, cmd CmdType) error {
 			}
 		case FrameErr:
 			rc.msg.Errorf("received ERR ACK from %q: %v", cli.name, string(ack.Body))
-			berr = append(berr, xerrors.Errorf(string(ack.Body)))
+			berr = append(berr, fmt.Errorf(string(ack.Body)))
 		default:
 			rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
-			berr = append(berr, xerrors.Errorf("received invalid frame type %v from %q", ack.Type, cli.name))
+			berr = append(berr, fmt.Errorf("received invalid frame type %v from %q", ack.Type, cli.name))
 		}
 		rc.msg.Debugf("sending cmd %v to %q... [ok]", cmd, cli.name)
 	}
@@ -447,7 +447,7 @@ func (rc *RunControl) Do(ctx context.Context, cmd CmdType) error {
 	case CmdStatus:
 		fct = rc.doStatus
 	default:
-		return xerrors.Errorf("unknown command %#v", cmd)
+		return fmt.Errorf("unknown command %#v", cmd)
 	}
 
 	return fct(ctx)
@@ -472,7 +472,7 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 			provider, ok := providers[iport.Name]
 			if !ok {
 				rc.msg.Errorf("could not find a provider for input %q for %q", iport.Name, cli.name)
-				return xerrors.Errorf("could not find a provider for input %q for %q", iport.Name, cli.name)
+				return fmt.Errorf("could not find a provider for input %q for %q", iport.Name, cli.name)
 			}
 			cli.mu.Lock()
 			iport.Addr = provider
@@ -507,10 +507,10 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 				// ok
 			case FrameErr:
 				rc.msg.Errorf("received ERR ACK from %q: %v", cli.name, string(ack.Body))
-				return xerrors.Errorf("received ERR ACK from %q: %v", cli.name, string(ack.Body))
+				return fmt.Errorf("received ERR ACK from %q: %v", cli.name, string(ack.Body))
 			default:
 				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
-				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
+				return fmt.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
 			}
 			rc.msg.Debugf("sending /config to %q... [ok]", cli.name)
 			return nil
@@ -520,7 +520,7 @@ func (rc *RunControl) doConfig(ctx context.Context) error {
 	err := grp.Wait()
 	if err != nil {
 		rc.status = fsm.Error
-		return xerrors.Errorf("failed to run errgroup: %w", err)
+		return fmt.Errorf("failed to run errgroup: %w", err)
 	}
 
 	rc.status = fsm.Conf
@@ -539,7 +539,7 @@ func (rc *RunControl) doInit(ctx context.Context) error {
 	err := rc.dag.Analyze()
 	if err != nil {
 		rc.msg.Errorf("could not create DAG: %+v", err)
-		return xerrors.Errorf("could not create DAG of data dependencies: %w", err)
+		return fmt.Errorf("could not create DAG of data dependencies: %w", err)
 	}
 
 	rc.buildDeps()
@@ -664,14 +664,14 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 				cmd, err := newStatusCmd(ack)
 				if err != nil {
 					rc.msg.Errorf("could not receive /status reply for %q: %+v", cli.name, err)
-					return xerrors.Errorf("could not receive /status reply for %q: %w", cli.name, err)
+					return fmt.Errorf("could not receive /status reply for %q: %w", cli.name, err)
 				}
 				cli.setStatus(cmd.Status)
 				rc.msg.Infof("received /status = %v for %q", cmd.Status, cli.name)
 
 			default:
 				rc.msg.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
-				return xerrors.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
+				return fmt.Errorf("received invalid frame type %v from %q", ack.Type, cli.name)
 			}
 			return nil
 		})
@@ -679,7 +679,7 @@ func (rc *RunControl) doStatus(ctx context.Context) error {
 
 	err := grp.Wait()
 	if err != nil {
-		return xerrors.Errorf("failed to run /status errgroup: %w", err)
+		return fmt.Errorf("failed to run /status errgroup: %w", err)
 	}
 
 	return nil
@@ -734,20 +734,20 @@ func newCtlSrv(addr string) (*ctlsrv, error) {
 	var srv ctlsrv
 	sck, err := rep.NewSocket()
 	if err != nil {
-		return nil, xerrors.Errorf("could not create JOIN socket: %w", err)
+		return nil, fmt.Errorf("could not create JOIN socket: %w", err)
 	}
 
 	lis, err := sck.NewListener(addr, nil)
 	if err != nil {
 		_ = sck.Close()
-		return nil, xerrors.Errorf("could not create JOIN listener on %s: %w", addr, err)
+		return nil, fmt.Errorf("could not create JOIN listener on %s: %w", addr, err)
 	}
 
 	err = lis.Listen()
 	if err != nil {
 		_ = lis.Close()
 		_ = sck.Close()
-		return nil, xerrors.Errorf("could not JOIN-listen on %s: %w", addr, err)
+		return nil, fmt.Errorf("could not JOIN-listen on %s: %w", addr, err)
 	}
 
 	srv.join = sck

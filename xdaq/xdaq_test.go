@@ -7,6 +7,7 @@ package xdaq_test // import "github.com/go-daq/tdaq/xdaq"
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/go-daq/tdaq/job"
 	"github.com/go-daq/tdaq/log"
 	"github.com/go-daq/tdaq/xdaq"
-	"golang.org/x/xerrors"
 )
 
 type pstate struct {
@@ -179,13 +179,13 @@ func TestSequence(t *testing.T) {
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.n != *proc2.n:
-					err = xerrors.Errorf("stage-1 error")
+					err = fmt.Errorf("stage-1 error")
 					t.Fatalf("stage-1 error: %q:%v, %q:%v", proc1.name, *proc1.n, proc2.name, *proc2.n)
 				case *proc2.v*2 != *proc3.v:
-					err = xerrors.Errorf("stage-2 error")
+					err = fmt.Errorf("stage-2 error")
 					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc2.name, *proc2.v, proc3.name, *proc3.v)
 				case *proc3.v != *proc4.v:
-					err = xerrors.Errorf("stage-3 error")
+					err = fmt.Errorf("stage-3 error")
 					t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
 				}
 			}
@@ -342,10 +342,10 @@ func TestAdder(t *testing.T) {
 			if tt.name == "/stop" {
 				switch {
 				case *proc3.v != 2*(*proc3.n-1):
-					err = xerrors.Errorf("stage-2 error")
+					err = fmt.Errorf("stage-2 error")
 					t.Fatalf("stage-2 error: %q:%v, %q:%v", proc3.name+"-sum", *proc3.v, proc3.name+"-n", *proc3.n)
 				case *proc3.v != *proc4.v:
-					err = xerrors.Errorf("stage-3 error")
+					err = fmt.Errorf("stage-3 error")
 					t.Fatalf("stage-3 error: %q:%v, %q:%v", proc3.name, *proc3.v, proc4.name, *proc4.v)
 				}
 			}
@@ -539,13 +539,13 @@ func TestScaler(t *testing.T) {
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.n != *proc2.n:
-					err = xerrors.Errorf("stage-1 error")
+					err = fmt.Errorf("stage-1 error")
 					t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.n, proc2.name, *proc2.n)
 				case *proc2.n/2 != *proc3.n:
-					err = xerrors.Errorf("stage-2 error")
+					err = fmt.Errorf("stage-2 error")
 					t.Fatalf("stage-2: error: %q:%v, %q:%v", proc2.name, *proc2.n, proc3.name, *proc3.n)
 				case *proc5.n != 0:
-					err = xerrors.Errorf("stage-3 error")
+					err = fmt.Errorf("stage-3 error")
 					t.Fatalf("stage-3: error: %q:%v, %q:%v", proc1.name, *proc1.n, proc5.name, *proc5.n)
 				}
 			}
@@ -792,16 +792,16 @@ func TestSplitter(t *testing.T) {
 			if tt.name == "/stop" {
 				switch {
 				case *proc1.n != *proc2.n:
-					err = xerrors.Errorf("stage-1 error")
+					err = fmt.Errorf("stage-1 error")
 					t.Fatalf("stage-1: error: %q:%v, %q:%v", proc1.name, *proc1.n, proc2.name, *proc2.n)
 				case *proc2.n != *proc3.n+*proc4.n:
-					err = xerrors.Errorf("stage-2 error")
+					err = fmt.Errorf("stage-2 error")
 					t.Fatalf("stage-2: error: %q:%v, %q:%v %q:%v", proc2.name, *proc2.n, proc3.name, *proc3.n, proc4.name, *proc4.n)
 				case *proc1.n != *proc6.n+*proc7.n:
-					err = xerrors.Errorf("stage-3 error")
+					err = fmt.Errorf("stage-3 error")
 					t.Fatalf("stage-3: error: %q:%v, %q:%v %q:%v", proc1.name, *proc1.n, proc6.name, *proc6.n, proc7.name, *proc7.n)
 				case *proc7.n != 0:
-					err = xerrors.Errorf("stage-4 error")
+					err = fmt.Errorf("stage-4 error")
 					t.Fatalf("stage-4: error: %q:%v, %q:%v", proc1.name, *proc1.n, proc7.name, *proc7.n)
 				}
 			}

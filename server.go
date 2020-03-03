@@ -6,6 +6,7 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +22,6 @@ import (
 	"go.nanomsg.org/mangos/v3/protocol/rep"
 	"go.nanomsg.org/mangos/v3/protocol/req"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 type Server struct {
@@ -116,21 +116,21 @@ func (srv *Server) Run(ctx context.Context) error {
 
 	rctl, rlis, err := makeListener(rep.NewSocket, makeAddr(srv.cfg))
 	if err != nil {
-		return xerrors.Errorf("could not create run-ctl socket: %w", err)
+		return fmt.Errorf("could not create run-ctl socket: %w", err)
 	}
 	srv.rctl.sck = rctl
 	srv.rctl.lis = rlis
 
 	hbeat, hlis, err := makeListener(rep.NewSocket, makeAddr(srv.cfg))
 	if err != nil {
-		return xerrors.Errorf("could not create hbeat socket: %w", err)
+		return fmt.Errorf("could not create hbeat socket: %w", err)
 	}
 	srv.hbeat.sck = hbeat
 	srv.hbeat.lis = hlis
 
 	log, llis, err := makeListener(pub.NewSocket, makeAddr(srv.cfg))
 	if err != nil {
-		return xerrors.Errorf("could not create log socket: %w", err)
+		return fmt.Errorf("could not create log socket: %w", err)
 	}
 	srv.log.sck = log
 	srv.log.lis = llis
@@ -141,14 +141,14 @@ func (srv *Server) Run(ctx context.Context) error {
 
 	err = srv.omgr.init(srv)
 	if err != nil {
-		return xerrors.Errorf("could not setup i/o data ports: %w", err)
+		return fmt.Errorf("could not setup i/o data ports: %w", err)
 	}
 
 	srv.cmgr.init()
 
 	err = srv.join(ctx)
 	if err != nil {
-		return xerrors.Errorf("could not join run-ctl: %w", err)
+		return fmt.Errorf("could not join run-ctl: %w", err)
 	}
 
 	defer srv.msg.Debugf("server closing...")
@@ -200,13 +200,13 @@ func (srv *Server) join(ctx context.Context) error {
 
 	sck, err := req.NewSocket()
 	if err != nil {
-		return xerrors.Errorf("could not create /join socket: %w", err)
+		return fmt.Errorf("could not create /join socket: %w", err)
 	}
 	defer sck.Close()
 
 	err = sck.Dial(srv.rc)
 	if err != nil {
-		return xerrors.Errorf(
+		return fmt.Errorf(
 			"could not dial /join socket %q: %w",
 			srv.rc, err,
 		)
@@ -214,9 +214,9 @@ func (srv *Server) join(ctx context.Context) error {
 
 	select {
 	case <-srv.done:
-		return xerrors.Errorf("could not /join run-ctl before exiting")
+		return fmt.Errorf("could not /join run-ctl before exiting")
 	case <-ctx.Done():
-		return xerrors.Errorf("could not /join run-ctl before timeout: %w", ctx.Err())
+		return fmt.Errorf("could not /join run-ctl before timeout: %w", ctx.Err())
 	default:
 	}
 
@@ -231,21 +231,21 @@ func (srv *Server) join(ctx context.Context) error {
 
 	err = SendCmd(ctx, sck, &join)
 	if err != nil {
-		return xerrors.Errorf("could not send /join cmd to run-ctl: %w", err)
+		return fmt.Errorf("could not send /join cmd to run-ctl: %w", err)
 	}
 
 	frame, err := RecvFrame(ctx, sck)
 	if err != nil {
-		return xerrors.Errorf("could not recv /join-ack from run-ctl: %w", err)
+		return fmt.Errorf("could not recv /join-ack from run-ctl: %w", err)
 	}
 	switch frame.Type {
 	case FrameOK:
 		// OK
 		return nil
 	case FrameErr:
-		return xerrors.Errorf("received error /join-ack from run-ctl: %s", frame.Body)
+		return fmt.Errorf("received error /join-ack from run-ctl: %s", frame.Body)
 	default:
-		return xerrors.Errorf("received invalid /join-ack frame from run-ctl (frame=%#v)", frame)
+		return fmt.Errorf("received invalid /join-ack frame from run-ctl (frame=%#v)", frame)
 	}
 }
 
@@ -267,7 +267,7 @@ func (srv *Server) cmdsLoop(ctx context.Context) {
 			switch {
 			case err == nil:
 				// ok
-			case xerrors.Is(err, mangos.ErrClosed):
+			case errors.Is(err, mangos.ErrClosed):
 				switch state := srv.getNextState(); state {
 				case fsm.Exiting:
 					// ok
@@ -300,7 +300,7 @@ func (srv *Server) handleCmd(ctx context.Context, req Frame) {
 	if !ok {
 		srv.msg.Warnf("invalid request path %q", name)
 		resp.Type = FrameErr
-		resp.Body = []byte(xerrors.Errorf("invalid request path %q", name).Error())
+		resp.Body = []byte(fmt.Errorf("invalid request path %q", name).Error())
 
 		err = SendFrame(ctx, sck, resp)
 		if err != nil {
@@ -388,12 +388,12 @@ func (srv *Server) onConfig(ctx Context, req Frame) error {
 	case fsm.UnConf, fsm.Conf, fsm.Error:
 		// ok
 	default:
-		return xerrors.Errorf("%s: invalid state transition %v -> configured", srv.name, srv.state.cur)
+		return fmt.Errorf("%s: invalid state transition %v -> configured", srv.name, srv.state.cur)
 	}
 
 	ierr := srv.imgr.onConfig(ctx, req)
 	if ierr != nil {
-		return xerrors.Errorf("could not /config input-ports: %w", ierr)
+		return fmt.Errorf("could not /config input-ports: %w", ierr)
 	}
 
 	return nil
@@ -407,7 +407,7 @@ func (srv *Server) onInit(ctx Context, req Frame) error {
 	case fsm.Conf:
 		// ok
 	default:
-		return xerrors.Errorf("%s: invalid state transition %v -> initialized", srv.name, srv.state.cur)
+		return fmt.Errorf("%s: invalid state transition %v -> initialized", srv.name, srv.state.cur)
 	}
 
 	return nil
@@ -421,7 +421,7 @@ func (srv *Server) onReset(ctx Context, req Frame) error {
 	case fsm.UnConf, fsm.Conf, fsm.Init, fsm.Stopped, fsm.Error:
 		// ok
 	default:
-		return xerrors.Errorf("%s: invalid state transition %v -> reset", srv.name, srv.state.cur)
+		return fmt.Errorf("%s: invalid state transition %v -> reset", srv.name, srv.state.cur)
 	}
 
 	ierr := srv.imgr.onReset(ctx)
@@ -445,7 +445,7 @@ func (srv *Server) onStart(runctx Context, req Frame) error {
 	case fsm.Init, fsm.Stopped:
 		// ok
 	default:
-		return xerrors.Errorf("%s: invalid state transition %v -> started", srv.name, srv.state.cur)
+		return fmt.Errorf("%s: invalid state transition %v -> started", srv.name, srv.state.cur)
 	}
 
 	for i := range srv.runfcts {
@@ -476,7 +476,7 @@ func (srv *Server) onStop(ctx Context, req Frame) error {
 	case fsm.Running:
 		// ok
 	default:
-		return xerrors.Errorf("%s: invalid state transition %v -> stopped", srv.name, srv.state.cur)
+		return fmt.Errorf("%s: invalid state transition %v -> stopped", srv.name, srv.state.cur)
 	}
 
 	srv.rundone()
@@ -517,7 +517,7 @@ func (srv *Server) onStatus(ctx Context, req Frame) error {
 
 	err := SendCmd(ctx.Ctx, srv.rctl.sck, &cmd)
 	if err != nil {
-		return xerrors.Errorf("%s: could not send /status reply: %w", srv.name, err)
+		return fmt.Errorf("%s: could not send /status reply: %w", srv.name, err)
 	}
 
 	return nil
@@ -541,7 +541,7 @@ func (srv *Server) hbeatLoop(ctx context.Context) {
 			switch {
 			case err == nil:
 				// ok
-			case xerrors.Is(err, mangos.ErrClosed):
+			case errors.Is(err, mangos.ErrClosed):
 				switch state := srv.getNextState(); state {
 				case fsm.Exiting:
 					// ok
@@ -575,7 +575,7 @@ func (srv *Server) handleHBeat(ctx context.Context, frame Frame) error {
 
 	err := SendCmd(ctx, srv.hbeat.sck, &cmd)
 	if err != nil {
-		return xerrors.Errorf("%s: could not send /hbeat reply: %w", srv.name, err)
+		return fmt.Errorf("%s: could not send /hbeat reply: %w", srv.name, err)
 	}
 
 	return nil

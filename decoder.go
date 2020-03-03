@@ -6,10 +6,9 @@ package tdaq // import "github.com/go-daq/tdaq"
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
-
-	"golang.org/x/xerrors"
 )
 
 // Decoder decodes values from the underlying io.Reader, according to the TDAQ wire protocol.
@@ -72,7 +71,7 @@ func (dec *Decoder) Decode(ptr interface{}) error {
 	case *string:
 		*v = dec.ReadStr()
 	default:
-		return xerrors.Errorf("invalid value-type=%T", v)
+		return fmt.Errorf("invalid value-type=%T", v)
 	}
 	return dec.err
 }

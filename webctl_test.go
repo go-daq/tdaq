@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,7 +29,6 @@ import (
 	"github.com/go-daq/tdaq/xdaq"
 	"golang.org/x/net/websocket"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/xerrors"
 )
 
 func TestRunControlWebAPI(t *testing.T) {
@@ -258,7 +258,7 @@ loop:
 	}
 
 	err = <-errc
-	if err != nil && !xerrors.Is(err, context.Canceled) {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("error shutting down run-ctl: %+v", err)
 	}
 }
@@ -300,16 +300,16 @@ func (cli *testCli) cmd(name string) (*http.Request, error) {
 	w := multipart.NewWriter(buf)
 	err := w.WriteField("cmd", "/"+name)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create mime/multipart field: %w", err)
+		return nil, fmt.Errorf("could not create mime/multipart field: %w", err)
 	}
 	err = w.Close()
 	if err != nil {
-		return nil, xerrors.Errorf("could not create mime/multipart form: %w", err)
+		return nil, fmt.Errorf("could not create mime/multipart form: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, cli.srv.URL+"/cmd", buf)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create http request for %q: %w", name, err)
+		return nil, fmt.Errorf("could not create http request for %q: %w", name, err)
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
@@ -328,13 +328,13 @@ func newTestWS(tsrv *httptest.Server) (*testWS, error) {
 
 	status, err := websocket.Dial(urlStatus, "", origin)
 	if err != nil {
-		return nil, xerrors.Errorf("could not dial /status websocket: %w", err)
+		return nil, fmt.Errorf("could not dial /status websocket: %w", err)
 	}
 
 	urlMsg := "ws://" + strings.Replace(tsrv.URL, "http://", "", 1) + "/msg"
 	msg, err := websocket.Dial(urlMsg, "", origin)
 	if err != nil {
-		return nil, xerrors.Errorf("could not dial /status websocket: %w", err)
+		return nil, fmt.Errorf("could not dial /status websocket: %w", err)
 	}
 
 	buf := new(bytes.Buffer)
@@ -352,11 +352,11 @@ func (ws *testWS) Close() error {
 	err2 := ws.msg.Close()
 
 	if err1 != nil {
-		return xerrors.Errorf("could not close /status websocket: %w", err1)
+		return fmt.Errorf("could not close /status websocket: %w", err1)
 	}
 
 	if err2 != nil {
-		return xerrors.Errorf("could not close /msg websocket: %w", err2)
+		return fmt.Errorf("could not close /msg websocket: %w", err2)
 	}
 
 	return nil
@@ -366,7 +366,7 @@ func (ws *testWS) readStatus() (string, error) {
 	buf := make([]byte, 1024)
 	n, err := ws.status.Read(buf)
 	if err != nil {
-		return "", xerrors.Errorf("could not read /status response: %w", err)
+		return "", fmt.Errorf("could not read /status response: %w", err)
 	}
 
 	var data struct {
@@ -374,7 +374,7 @@ func (ws *testWS) readStatus() (string, error) {
 	}
 	err = json.NewDecoder(bytes.NewReader(buf[:n])).Decode(&data)
 	if err != nil {
-		return "", xerrors.Errorf("could not decode /status JSON response: %w", err)
+		return "", fmt.Errorf("could not decode /status JSON response: %w", err)
 	}
 
 	return data.Status, nil
