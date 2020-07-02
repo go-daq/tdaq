@@ -26,6 +26,8 @@ github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 go.nanomsg.org/mangos/v3 v3.0.0 h1:50i1v/XDhTcYW2CnJYxjpuHKf041obWL0Ccezz6SsJs=
 go.nanomsg.org/mangos/v3 v3.0.0/go.mod h1:+o2RKKCIEB6Dw/4Frf2biiEuqcRDKcEUSrC0r9OWDE0=
+go.nanomsg.org/mangos/v3 v3.0.1 h1:xR8nca0ZeAvwsoRWjeEHuR2/B0N+Po/ZJpGNCpDz6To=
+go.nanomsg.org/mangos/v3 v3.0.1/go.mod h1:RxVwsn46YtfJ74mF8MeVo+MFjg545KCI50NuZrFXmzc=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20190510104115-cbcb75029529/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
 golang.org/x/exp v0.0.0-20180321215751-8460e604b9de/go.mod h1:CJ0aWSM057203Lf6IL+f9T1iT9GByDxfZKAQTCR3kQA=
