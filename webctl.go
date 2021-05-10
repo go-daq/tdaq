@@ -38,6 +38,9 @@ func (rc *RunControl) serveWeb(ctx context.Context) {
 			case <-rc.quit:
 				// ok, we are shutting down.
 				return
+			case <-ctx.Done():
+				// ok, we are shutting down.
+				return
 			default:
 			}
 		}
@@ -101,7 +104,6 @@ func (rc *RunControl) webCmd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	return
 }
 
 func (rc *RunControl) webStatus(ws *websocket.Conn) {

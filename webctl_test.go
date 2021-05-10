@@ -280,10 +280,8 @@ func (srv *websrvTest) Close() {
 }
 
 func (srv *websrvTest) ListenAndServe() error {
-	select {
-	case <-srv.quit:
-		return nil
-	}
+	<-srv.quit
+	return nil
 }
 
 func (srv *websrvTest) Shutdown(ctx context.Context) error {
@@ -338,7 +336,9 @@ func newTestWS(tsrv *httptest.Server) (*testWS, error) {
 	}
 
 	buf := new(bytes.Buffer)
-	go io.Copy(buf, msg)
+	go func() {
+		_, _ = io.Copy(buf, msg)
+	}()
 
 	return &testWS{
 		status: status,

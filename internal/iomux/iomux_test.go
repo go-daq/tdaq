@@ -13,7 +13,10 @@ func TestStringer(t *testing.T) {
 	want := "hello"
 
 	o := NewWriter(new(bytes.Buffer))
-	o.Write([]byte(want))
+	_, err := o.Write([]byte(want))
+	if err != nil {
+		t.Fatalf("could not write: %+v", err)
+	}
 
 	got1 := o.String()
 	if got1 != want {

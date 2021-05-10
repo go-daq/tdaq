@@ -13,7 +13,7 @@ type Event struct {
 	RunNbr   uint32
 	EvtNbr   uint32
 	TrigNbr  uint32
-	_pad0    uint32 // reserved
+	_        uint32 // reserved
 
 	Timestamp struct {
 		Beg uint64

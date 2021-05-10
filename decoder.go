@@ -88,10 +88,7 @@ func (dec *Decoder) load(n int) {
 
 func (dec *Decoder) ReadBool() bool {
 	v := dec.ReadU8()
-	if v == 1 {
-		return true
-	}
-	return false
+	return v != 0
 }
 
 func (dec *Decoder) ReadI8() int8 {
@@ -146,7 +143,7 @@ func (dec *Decoder) ReadF64() float64 {
 
 func (dec *Decoder) ReadStr() string {
 	n := dec.ReadI32()
-	if n <= 0 || dec.err != nil || n >= math.MaxInt32 {
+	if n <= 0 || dec.err != nil || uint32(n) >= math.MaxInt32 {
 		return ""
 	}
 	str := make([]byte, n)
