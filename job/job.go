@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -125,7 +124,7 @@ func (app *App) Add(ps ...Proc) {
 // an error if any.
 func (app *App) Start() error {
 	if app.Cfg.LogFile == "" {
-		f, err := ioutil.TempFile("", "tdaq-")
+		f, err := os.CreateTemp("", "tdaq-")
 		if err != nil {
 			return fmt.Errorf("could not create log-file: %w", err)
 		}

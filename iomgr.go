@@ -396,7 +396,7 @@ func (mgr *omgr) run(ctx Context, ep string, op *oport, f OutputHandler) error {
 				default:
 					ctx.Msg.Errorf("could not send data frame for %q (state=%v): %+v", ep, state, err)
 				}
-				if err, ok := err.(net.Error); ok && !err.Temporary() {
+				if err, ok := err.(net.Error); ok && err.Timeout() {
 					return fmt.Errorf("could not send data frame for %q: %w", ep, err)
 				}
 				continue

@@ -150,7 +150,7 @@ func (rc *RunControl) webStatus(ws *websocket.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not send /status report to websocket client: %+v", err)
 				var nerr net.Error
-				if errors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+				if errors.As(err, &nerr); nerr != nil && nerr.Timeout() {
 					return
 				}
 			}
@@ -180,7 +180,7 @@ func (rc *RunControl) webMsg(ws *websocket.Conn) {
 			if err != nil {
 				rc.msg.Errorf("could not send /msg report to websocket client: %+v", err)
 				var nerr net.Error
-				if errors.As(err, &nerr); nerr != nil && !nerr.Temporary() {
+				if errors.As(err, &nerr); nerr != nil && nerr.Timeout() {
 					return
 				}
 			}

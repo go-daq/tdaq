@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -54,14 +53,14 @@ func TestRunControlWebAPI(t *testing.T) {
 
 	stdout := iomux.NewWriter(new(bytes.Buffer))
 
-	fname, err := ioutil.TempFile("", "tdaq-")
+	fname, err := os.CreateTemp("", "tdaq-")
 	if err != nil {
 		t.Fatalf("could not create a temporary log file for run-ctl log server: %+v", err)
 	}
 	fname.Close()
 	defer func() {
 		if err != nil {
-			raw, err := ioutil.ReadFile(fname.Name())
+			raw, err := os.ReadFile(fname.Name())
 			if err == nil {
 				t.Logf("log-file:\n%v\n", string(raw))
 			}
