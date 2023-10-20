@@ -1,7 +1,7 @@
 # tdaq
 
 [![GitHub release](https://img.shields.io/github/release/go-daq/tdaq.svg)](https://github.com/go-daq/tdaq/releases)
-[![Build Status](https://travis-ci.org/go-daq/tdaq.svg?branch=master)](https://travis-ci.org/go-daq/tdaq)
+[![CI](https://github.com/go-daq/tdaq/workflows/CI/badge.svg)](https://github.com/go-daq/tdaq/actions)
 [![codecov](https://codecov.io/gh/go-daq/tdaq/branch/master/graph/badge.svg)](https://codecov.io/gh/go-daq/tdaq)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-daq/tdaq)](https://goreportcard.com/report/github.com/go-daq/tdaq)
 [![GoDoc](https://godoc.org/github.com/go-daq/tdaq?status.svg)](https://godoc.org/github.com/go-daq/tdaq)
